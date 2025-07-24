@@ -1,9 +1,9 @@
 // For format details, see https://aka.ms/devcontainer.json. For config options, see the
 // README at: https://github.com/devcontainers/templates/tree/main/src/alpine
 {
-	"name": "Alpine",
+	"name": "Salesforce",
 	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
-	"image": "mcr.microsoft.com/devcontainers/base:alpine-3.20",
+	"image": "mcr.microsoft.com/devcontainers/base:debian",
 	"features": {
 		"ghcr.io/vercellone/devcontainer-features/sfdx-cli:1": {},
 		"ghcr.io/devcontainers/features/java:1": {
@@ -13,7 +13,8 @@
 	"customizations": {
 		"vscode": {
 			"extensions": [
-				"salesforce.salesforce-extension-pack"
+				"salesforce.salesforce-extension-pack",
+				"GitHub.vscode-pull-request-github"
 			]
 		}
 	}
