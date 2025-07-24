@@ -1,0 +1,310 @@
+<template>
+    <c-show-toastr></c-show-toastr>
+
+    <div class="app-main flex-column flex-row-fluid" id="kt_app_main">
+        <div class="d-flex flex-column flex-column-fluid">
+            <div id="kt_app_content" class="app-content">
+                <div class="container-xxl">
+
+                    <!-- Section Header -->
+                    <div
+                        class="app-content-menu menu menu-rounded menu-gray-800 menu-state-bg flex-wrap fs-5 fw-semibold border-bottom pt-5 pb-6 px-10 mb-10">
+                        <div class="d-flex justify-content-between align-items-center w-100">
+                            <h1 lwc:if={previousTask} class="text-dark fw-bolder fs-2">{previousTask.accountName}</h1>
+                            <h1 lwc:else class="text-dark fw-bolder fs-2">Project Monitoring</h1>
+                            <template lwc:if={managerSelected}>
+                                <div class="d-flex align-items-center gap-3">
+                                    <button class="btn btn-primary" onclick={handleChangeManager}>Change Project
+                                        Manager</button>
+                                    <div>
+                                        <select class="form-select" onchange={handleStatusFilterChange}>
+                                            <template for:each={statusFilterOptions} for:item="opt">
+                                                <option key={opt.value} value={opt.value} selected={opt.selected}>
+                                                    {opt.label}</option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- Project Manager Selection Card -->
+                    <div lwc:if={isSelectManager} class="row gx-5 gx-xl-10">
+                        <div class="col-xxl-12 mb-5">
+                            <div class="card card-flush">
+                                <div class="w-100">
+                                    <div class="pb-10">
+                                        <h2 class="fw-bold text-gray-900 fs-1">Select a Project Manager</h2>
+                                        <div class="text-muted fw-semibold fs-6">
+                                            Please choose a Project Manager to view associated projects and begin
+                                            monitoring.
+                                        </div>
+                                    </div>
+                                    <!-- Radio Options -->
+                                    <div class="fv-row">
+                                        <div class="row row-cols-1 row-cols-md-3 g-4">
+                                            <template for:each={projectManagers} for:item="item">
+                                                <div class="col" key={item.value}>
+                                                    <input type="radio" id={item.value} name="framework"
+                                                        value={item.value} class="btn-check validate"
+                                                        onchange={handleProjectManagerChange} checked={item.checked} />
+                                                    <label
+                                                        class="btn btn-outline btn-outline-dashed btn-active-light-primary p-7 d-flex align-items-center w-100 justify-content-center"
+                                                        for={item.value}>
+                                                        <span class="text-gray-700 fw-bold fs-6">{item.label}</span>
+                                                    </label>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Task Detail View -->
+                    <template lwc:if={previousTask}>
+                        <div class="row gx-5 gx-xl-10">
+                            <!-- Project Details -->
+                            <div class="col-xxl-4 mb-5">
+                                <div class="card card-flush h-xl-100 shadow" style={priorityLineStyle}>
+                                    <div class="card-header">
+                                        <div class="card-title">
+                                            <h2 class="fw-bold text-primary">Project Details</h2>
+                                        </div>
+                                    </div>
+                                    <div class="card-body pt-0">
+                                        <p><strong>Project:</strong> {previousTask.opportunityName}</p>
+                                        <label class="form-label fw-semibold">Project Status</label>
+                                        <select class="form-select" onchange={handleProjectStatusChange}
+                                            disabled={viewOnlyMode}>
+                                            <option value={previousTask.oppProjectStatus}>{previousProjectStatusLabel}
+                                            </option>
+                                            <template for:each={projectStatusOptions} for:item="opt">
+                                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                            </template>
+                                        </select>
+                                        <br />
+                                        <template lwc:if={previousTask.clientOnboardingSheet}>
+                                            <p><strong>Client Onboarding Sheet:</strong>
+                                                <a href={previousTask.clientOnboardingSheet} target="_blank">
+                                                    View Sheet
+                                                </a>
+                                            </p>
+                                        </template>
+
+                                        <template lwc:if={previousTask.projectTracker}>
+                                            <p><strong>Project Tracker:</strong>
+                                                <a href={previousTask.projectTracker} target="_blank">
+                                                    View Sheet
+                                                </a>
+                                            </p>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Actions and Goals -->
+                            <div class="col-xxl-8 mb-5">
+                                <!-- Previous Actions -->
+                                <div class="card card-flush shadow">
+                                    <div class="card-header">
+                                        <div class="card-title">
+                                            <h2 class="fw-bold text-success">Previous Actions</h2>
+                                        </div>
+                                    </div>
+                                    <div class="card-body pt-0">
+                                        <div class="row g-3">
+                                            <div class="col-md-6">
+                                                <label class="form-label fw-semibold">Previous Day Date</label>
+                                                <div class="form-control-plaintext">
+                                                    <template lwc:if={previousDayDate}>
+                                                        <lightning-formatted-date-time
+                                                            value={previousDayDate}
+                                                            year="numeric"
+                                                            month="short"
+                                                            day="2-digit"
+                                                            hour="2-digit"
+                                                            minute="2-digit">
+                                                        </lightning-formatted-date-time>
+                                                    </template>
+                                                    <template lwc:else>
+                                                        <span class="text-muted">N/A</span>
+                                                    </template>
+                                                </div>
+                                            </div>
+
+                                            <div class="col-md-6">
+                                                <label class="form-label fw-semibold">Last Meeting Date</label>
+                                                <div class="form-control-plaintext">
+                                                    <template lwc:if={lastMeetingDate}>
+                                                        <lightning-formatted-date-time
+                                                            value={lastMeetingDate}
+                                                            year="numeric"
+                                                            month="short"
+                                                            day="2-digit"
+                                                            hour="2-digit"
+                                                            minute="2-digit">
+                                                        </lightning-formatted-date-time>
+                                                    </template>
+                                                    <template lwc:else>
+                                                        <span class="text-muted">N/A</span>
+                                                    </template>
+                                                </div>
+                                            </div>
+
+                                            <div class="col-md-6">
+                                                <label class="form-label fw-semibold">Previous Step</label>
+                                                <textarea class="form-control" readonly>{previousStep}</textarea>
+                                            </div>
+
+                                            <div class="col-md-6">
+                                                <label class="form-label fw-semibold">Previous Agenda</label>
+                                                <textarea class="form-control" readonly>{previousAgenda}</textarea>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="card card-flush mt-6 shadow">
+                                    <div class="card-header">
+                                        <div class="card-title">
+                                            <h2 lwc:if={isClosedOrGoLive} class="fw-bold text-warning">Follow Up Task
+                                            </h2>
+                                            <h2 lwc:else class="fw-bold text-warning">Goals for Today</h2>
+                                        </div>
+                                    </div>
+                                    <div class="card-body pt-0">
+                                        <div lwc:if={isClosedOrGoLive} class="mb-3">
+                                            <label class="form-label fw-semibold">Required Follow up</label>
+                                            <select class="form-select" onchange={handleNextMeetingScheduledChange}
+                                                disabled={viewOnlyMode}>
+                                                <option value="Yes" selected>Yes</option>
+                                                <option value="No">No</option>
+                                            </select>
+                                        </div>
+
+                                        <div lwc:else class="mb-3">
+                                            <label class="form-label fw-semibold">Next Meeting Scheduled</label>
+                                            <select class="form-select" onchange={handleNextMeetingScheduledChange}
+                                                disabled={viewOnlyMode}>
+                                                <option value="">-- None --</option>
+                                                <template for:each={mappedMeetingScheduledOptions} for:item="opt">
+                                                    <option key={opt.value} value={opt.value} selected={opt.selected}>{opt.label}</option>
+                                                </template>
+                                            </select>
+                                        </div>
+
+                                        <template lwc:if={isCallNotRequired}>
+                                            <div class="mb-3">
+                                                <label class="form-label fw-semibold">Reason</label>
+                                                <textarea class="form-control" disabled={viewOnlyMode}
+                                                    onchange={handleReasonChange}>{currentReason}</textarea>
+                                            </div>
+                                        </template>
+                                        <template lwc:else>
+                                            <div class="mb-3">
+                                                <label lwc:if={isClosedOrGoLive} class="form-label fw-semibold">Follow Up Date</label>
+                                                <label lwc:else class="form-label fw-semibold">Next Meeting Date</label>
+                                                <c-flat-pickr-input name="next_meeting_date"
+                                                    value={currentNextMeetingDate} placeholder="Pick a date" enable-time
+                                                    options={flatpickrOptions} disabled={viewOnlyMode}
+                                                    onchange={handleNextMeetingDateChange}></c-flat-pickr-input>
+                                            </div>
+                                        </template>
+
+                                        <div if:false={isClosedStatus} class="mb-3">
+                                            <label lwc:if={isGoLiveStatus} class="form-label fw-semibold">Post Go Live
+                                                Support</label>
+                                            <label lwc:else class="form-label fw-semibold">Next Steps</label>
+                                            <textarea class="form-control" disabled={viewOnlyMode}
+                                                onchange={handleNextStepsChange}>{newNextSteps}</textarea>
+                                        </div>
+
+                                        <div if:false={isClosedOrGoLive} class="mb-3">
+                                            <label class="form-label fw-semibold">Next Meeting Agenda</label>
+                                            <textarea class="form-control" disabled={viewOnlyMode}
+                                                onchange={handleAgendaChange}>{currentAgenda}</textarea>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label class="form-label fw-semibold">Risk & Action <span
+                                                    class="text-danger">*</span></label>
+                                            <input type="text" class="form-control" value={currentRiskAndAction}
+                                                onchange={handleRiskAndActionChange} disabled={viewOnlyMode} />
+                                        </div>
+
+                                        <div class="d-flex justify-content-between mt-4">
+                                            <div>
+                                                <button class="btn btn-outline-secondary me-2"
+                                                    onclick={handlePrevious}>Previous</button>
+                                            </div>
+                                            <div lwc:if={viewOnlyMode}>
+                                                <button class="btn btn-primary px-4 fw-semibold"
+                                                    onclick={handleSkip}>Next</button>
+                                            </div>
+                                            <div lwc:else>
+                                                <button class="btn btn-primary px-4 fw-semibold"
+                                                    onclick={handleSaveAndNext}>Save & Next</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+
+                    <!-- Modal for Follow-Up Task -->
+                    <template lwc:if={showTaskModal}>
+                        <section class="modal fade show d-block" tabindex="-1" role="dialog">
+                            <div class="modal-dialog modal-dialog-centered">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title">Create Follow-Up Task</h5>
+                                        <button type="button" class="btn-close" onclick={closeTaskModal}></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <p>This project status indicates a closing or go-live stage. You may want to
+                                            create a new follow-up task.</p>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-secondary"
+                                            onclick={closeTaskModal}>Close</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+                    </template>
+
+                    <template lwc:if={noTasksError}>
+                        <div class="alert alert-danger mt-5" role="alert">
+                            <strong>No tasks are available</strong> for the selected Project Manager.
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <template lwc:if={showModeSelectModal}>
+        <section class="modal fade show d-block" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Choose Action</h5>
+                        <button type="button" class="btn-close" onclick={closeModeSelectModal}></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>How would you like to proceed with the selected Project Manager?</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-outline-primary" onclick={handleViewMode}>View</button>
+                        <button class="btn btn-primary" onclick={handleUpdateMode}>Update</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </template>
+
+</template>
