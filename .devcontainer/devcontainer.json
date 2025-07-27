@@ -21,7 +21,8 @@
 				"GitHub.copilot",
 				"GitHub.copilot-chat",
 				"salesforce.salesforcedx-vscode-apex-replay-debugger",
-				"salesforce.salesforcedx-vscode-apex-debugger"
+				"salesforce.salesforcedx-vscode-apex-debugger",
+				"salesforce.salesforcedx-vscode-core"
 			]
 		}
 	}

@@ -35,6 +35,7 @@ public without sharing class ProjectMonitoringNavController {
                 SELECT Id FROM Opportunity
                 WHERE Portal_User_Owner__c = :portalUserId
                 AND StageName = 'Closed Won'
+                AND Project_Status__c = 'In Development'
                 AND Id NOT IN (SELECT Opportunity__c FROM Project_Assistant_Task__c WHERE Opportunity__c != null)
             ];
             for (Opportunity opp : openOpps) {
@@ -95,7 +96,7 @@ public without sharing class ProjectMonitoringNavController {
                 FROM Opportunity
                 WHERE Portal_User_Owner__c = :portalUserId
                 AND StageName = 'Closed Won'
-                AND (Project_Status__c = '' OR Project_Status__c = 'Open' OR Project_Status__c = null)
+                AND Project_Status__c = 'In Development'
                 AND Id NOT IN (SELECT Opportunity__c FROM Project_Assistant_Task__c WHERE Opportunity__c != null)
             ];
             for (Opportunity opp : newOpps) {

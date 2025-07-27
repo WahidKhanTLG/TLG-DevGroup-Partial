@@ -64,7 +64,7 @@
                     </div>
 
                     <!-- Task Detail View -->
-                    <template lwc:if={previousTask}>
+                    <template lwc:if={showTaskCards}>
                         <div class="row gx-5 gx-xl-10">
                             <!-- Project Details -->
                             <div class="col-xxl-4 mb-5">
@@ -106,70 +106,72 @@
                             <!-- Actions and Goals -->
                             <div class="col-xxl-8 mb-5">
                                 <!-- Previous Actions -->
-                                <div class="card card-flush shadow">
-                                    <div class="card-header">
-                                        <div class="card-title">
-                                            <h2 class="fw-bold text-success">Previous Actions</h2>
-                                        </div>
-                                    </div>
-                                    <div class="card-body pt-0">
-                                        <div class="row g-3">
-                                            <div class="col-md-6">
-                                                <label class="form-label fw-semibold">Previous Day Date</label>
-                                                <div class="form-control-plaintext">
-                                                    <template lwc:if={previousDayDate}>
-                                                        <lightning-formatted-date-time
-                                                            value={previousDayDate}
-                                                            year="numeric"
-                                                            month="short"
-                                                            day="2-digit"
-                                                            hour="2-digit"
-                                                            minute="2-digit">
-                                                        </lightning-formatted-date-time>
-                                                    </template>
-                                                    <template lwc:else>
-                                                        <span class="text-muted">N/A</span>
-                                                    </template>
-                                                </div>
-                                            </div>
-
-                                            <div class="col-md-6">
-                                                <label class="form-label fw-semibold">Last Meeting Date</label>
-                                                <div class="form-control-plaintext">
-                                                    <template lwc:if={lastMeetingDate}>
-                                                        <lightning-formatted-date-time
-                                                            value={lastMeetingDate}
-                                                            year="numeric"
-                                                            month="short"
-                                                            day="2-digit"
-                                                            hour="2-digit"
-                                                            minute="2-digit">
-                                                        </lightning-formatted-date-time>
-                                                    </template>
-                                                    <template lwc:else>
-                                                        <span class="text-muted">N/A</span>
-                                                    </template>
-                                                </div>
-                                            </div>
-
-                                            <div class="col-md-6">
-                                                <label class="form-label fw-semibold">Previous Step</label>
-                                                <textarea class="form-control" readonly>{previousStep}</textarea>
-                                            </div>
-
-                                            <div class="col-md-6">
-                                                <label class="form-label fw-semibold">Previous Agenda</label>
-                                                <textarea class="form-control" readonly>{previousAgenda}</textarea>
-                                            </div>
-
-                                            <div class="col-12" lwc:if={previousRiskAndAction}>
-                                                <label class="form-label fw-semibold">Previous Risk & Action</label>
-                                                <textarea class="form-control border border-danger"
-                                                    style="box-shadow: 0 0 8px rgba(220,53,69,0.6);" readonly>{previousRiskAndAction}</textarea>
+                                <template lwc:if={showPreviousActions}>
+                                    <div class="card card-flush shadow">
+                                        <div class="card-header">
+                                            <div class="card-title">
+                                                <h2 class="fw-bold text-success">Previous Actions</h2>
                                             </div>
                                         </div>
+                                        <div class="card-body pt-0">
+                                            <div class="row g-3">
+                                                <div class="col-md-6">
+                                                    <label class="form-label fw-semibold">Previous Day Date</label>
+                                                    <div class="form-control-plaintext">
+                                                        <template lwc:if={previousDayDate}>
+                                                            <lightning-formatted-date-time
+                                                                value={previousDayDate}
+                                                                year="numeric"
+                                                                month="short"
+                                                                day="2-digit"
+                                                                hour="2-digit"
+                                                                minute="2-digit">
+                                                            </lightning-formatted-date-time>
+                                                        </template>
+                                                        <template lwc:else>
+                                                            <span class="text-muted">N/A</span>
+                                                        </template>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-md-6">
+                                                    <label class="form-label fw-semibold">Last Meeting Date</label>
+                                                    <div class="form-control-plaintext">
+                                                        <template lwc:if={lastMeetingDate}>
+                                                            <lightning-formatted-date-time
+                                                                value={lastMeetingDate}
+                                                                year="numeric"
+                                                                month="short"
+                                                                day="2-digit"
+                                                                hour="2-digit"
+                                                                minute="2-digit">
+                                                            </lightning-formatted-date-time>
+                                                        </template>
+                                                        <template lwc:else>
+                                                            <span class="text-muted">N/A</span>
+                                                        </template>
+                                                    </div>
+                                                </div>
+
+                                                <div class="col-md-6">
+                                                    <label class="form-label fw-semibold">Previous Step</label>
+                                                    <textarea class="form-control" readonly>{previousStep}</textarea>
+                                                </div>
+
+                                                <div class="col-md-6">
+                                                    <label class="form-label fw-semibold">Previous Agenda</label>
+                                                    <textarea class="form-control" readonly>{previousAgenda}</textarea>
+                                                </div>
+
+                                                <div class="col-12" lwc:if={previousRiskAndAction}>
+                                                    <label class="form-label fw-semibold">Previous Risk & Action</label>
+                                                    <textarea class="form-control border border-danger"
+                                                        style="box-shadow: 0 0 8px rgba(220,53,69,0.6);" readonly>{previousRiskAndAction}</textarea>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
+                                </template>
 
                                 <div class="card card-flush mt-6 shadow">
                                     <div class="card-header">
@@ -299,10 +301,23 @@
                         </section>
                     </template>
 
+                    <!-- Show neutral message when no tasks -->
                     <template lwc:if={noTasksError}>
-                        <div class="alert alert-danger mt-5" role="alert">
-                            <strong>No tasks are available</strong> for the selected Project Manager.
+                        <div class="alert alert-info mt-5" role="alert">
+                            No Projects currently meet the selected criteria. Please refine your filters or check again later.
                         </div>
+                    </template>
+
+                    <template lwc:if={managerSelected}>
+                        <template lwc:if={noTasksError}>
+                            <!-- no cards when noTasksError -->
+                        </template>
+                        <template lwc:else>
+                            <!-- existing layout with cards -->
+                            <template lwc:if={showTaskCards}>
+                                <!-- ...existing Task Detail View... -->
+                            </template>
+                        </template>
                     </template>
                 </div>
             </div>

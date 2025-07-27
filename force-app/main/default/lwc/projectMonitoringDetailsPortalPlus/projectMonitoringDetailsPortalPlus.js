@@ -171,6 +171,23 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
         return this.isClosedStatus || this.isGoLiveStatus;
     }
 
+    // Show Previous Actions only when not in Performance Monitoring filter
+    get isPerformanceMonitoring() {
+        return this.selectedStatusFilter === 'Open';
+    }
+    get showPreviousActions() {
+        return !this.isPerformanceMonitoring;
+    }
+
+    // Use previousTask if exists, otherwise currentTask for display
+    get displayTask() {
+        return this.previousTask || this.currentTask;
+    }
+    // Show cards only when tasks exist and not in no-record state
+    get showTaskCards() {
+        return this.displayTask && !this.noTasksError;
+    }
+
     get statusFilterOptions() {
 
         if (this.viewOnlyMode) {
@@ -187,6 +204,7 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
         } else {
             const options = [
                 { label: 'Due Today', value: 'Due Today' },
+                { label: 'Performance Monitoring', value: 'Open' },
                 { label: 'In Development', value: 'In Development' },
                 { label: 'Go Live', value: 'Go Live' },
                 { label: 'Closed', value: 'Closed' }
@@ -265,10 +283,11 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
             this.currentNextMeetingScheduled = task?.nextMeetingScheduled || '';
             this.currentNextMeetingDate = task?.nextMeetingDate || '';
         }
-        this.newNextSteps = task?.nextSteps || '';
-        this.currentAgenda = task?.nextAgenda || '';
-        this.currentRiskAndAction = task?.riskAndAction || '';
-        this.currentReason = task?.reason || '';
+        // Clear next-day input fields by default
+        this.newNextSteps = '';
+        this.currentAgenda = '';
+        this.currentRiskAndAction = '';
+        this.currentReason = '';
     }
 
     handleNextMeetingScheduledChange(e) { this.currentNextMeetingScheduled = e.target.value; }
