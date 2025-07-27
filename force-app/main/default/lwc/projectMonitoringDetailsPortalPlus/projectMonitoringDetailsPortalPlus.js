@@ -6,6 +6,7 @@ import insertProjectAssistantTasks from '@salesforce/apex/ProjectMonitoringNavCo
 import getProjectIds from '@salesforce/apex/ProjectMonitoringNavController.getProjectIds';
 import getPicklistValues from '@salesforce/apex/PortalPlusUtils.getPicklistValues';
 import getProjectManagers from '@salesforce/apex/ProjectMonitoringNavController.getProjectManagers';
+import upsertProjectAssistantTask from '@salesforce/apex/ProjectMonitoringNavController.upsertProjectAssistantTask';
 
 export default class ProjectMonitoringDetailsPortalPlus extends LightningElement {
     @api portalUserId = '';
@@ -31,7 +32,7 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
     @track currentRiskAndAction = '';
     @track currentReason = '';
 
-    @track selectedStatusFilter = 'All';
+    @track selectedStatusFilter = 'Due Today';
 
     @track showModeSelectModal = false;
     @track noTasksError = false;
@@ -50,6 +51,16 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
         { label: 'Yes', value: 'Yes' },
         { label: 'No', value: 'No' }
     ];
+
+    // Add modal state
+    showWarningModal = false;
+    showBlockModal = false;
+    warningMessage = '';
+    blockMessage = '';
+
+    // Add master-detail state
+    selectedProjectId = null;
+    projectList = [];
 
     @wire(CurrentPageReference)
     handlePageRef(currentPageReference) {
@@ -111,7 +122,8 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
             enableTime: true,
             altInput: true,
             altFormat: 'M d, Y h:i K',
-            dateFormat: 'Y-m-d H:i'
+            dateFormat: 'Y-m-d H:i',
+            locale: 'default' // Explicitly set locale to prevent fetcher issues
         };
     }
 
@@ -120,7 +132,11 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
     }
 
     get priorityLineStyle() {
-        return `border-left: 6px solid ${this.currentTask?.isOpportunityPriorityRecord ? '#dc3545' : '#198754'};`;
+        if (!this.currentTask) {
+            return 'border-left: 6px solid #6c757d;'; // Default grey color when no task is loaded
+        }
+        const color = this.currentTask.isOpportunityPriorityRecord ? '#dc3545' : '#198754';
+        return `border-left: 6px solid ${color};`;
     }
 
     get resourceLookupFilter() {
@@ -131,6 +147,15 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
         const val = this.previousTask?.oppProjectStatus;
         const found = this.projectStatusOptions.find(opt => opt.value === val);
         return found ? found.label : val;
+    }
+
+    get mappedProjectStatusOptions() {
+        if (!this.previousTask) return [];
+        const currentStatus = this.previousTask.oppProjectStatus;
+        return this.projectStatusOptions.map(opt => ({
+            ...opt,
+            selected: opt.value === currentStatus
+        }));
     }
 
 
@@ -176,14 +201,27 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
     get previousDayDate() {
         return this.previousTask ? this.previousTask.previousDayDate : null;
     }
+    // Show the previous record's "next meeting date" as the last meeting date for traceability
     get lastMeetingDate() {
-        return this.previousTask ? this.previousTask.lastMeetingDate : null;
+        return this.previousTask ? this.previousTask.nextMeetingDate : null;
     }
+    // Show the previous record's "next steps" as the previous step on load
     get previousStep() {
-        return this.previousTask ? this.previousTask.previousStep || '' : '';
+        return this.previousTask ? this.previousTask.nextSteps || '' : '';
     }
+    // Show the previous record's "next agenda" as the previous agenda on load
     get previousAgenda() {
-        return this.previousTask ? this.previousTask.previousAgenda || '' : '';
+        return this.previousTask ? this.previousTask.nextAgenda || '' : '';
+    }
+    // Optionally expose other previous fields
+    get previousMeetingScheduled() {
+        return this.previousTask ? this.previousTask.nextMeetingScheduled : '';
+    }
+    get previousRiskAndAction() {
+        return this.previousTask ? this.previousTask.riskAndAction : '';
+    }
+    get previousReason() {
+        return this.previousTask ? this.previousTask.reason : '';
     }
 
     get mappedMeetingScheduledOptions() {
@@ -216,8 +254,17 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
     }
 
     resetInputs(task) {
-        this.currentNextMeetingScheduled = task?.nextMeetingScheduled || '';
-        this.currentNextMeetingDate = task?.nextMeetingDate || '';
+        // Auto-populate next meeting values from previous task if still in future
+        const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0);
+        const prevDateStr = this.previousTask?.nextMeetingDate;
+        const prevDate = prevDateStr ? new Date(prevDateStr) : null;
+        if (prevDate && prevDate > todayDate) {
+            this.currentNextMeetingScheduled = this.previousTask.nextMeetingScheduled || '';
+            this.currentNextMeetingDate = this.previousTask.nextMeetingDate || '';
+        } else {
+            this.currentNextMeetingScheduled = task?.nextMeetingScheduled || '';
+            this.currentNextMeetingDate = task?.nextMeetingDate || '';
+        }
         this.newNextSteps = task?.nextSteps || '';
         this.currentAgenda = task?.nextAgenda || '';
         this.currentRiskAndAction = task?.riskAndAction || '';
@@ -249,10 +296,12 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
         }
     }
 
+    @track repeatedDetailsWarning = '';
+
     handleSaveAndNext() {
         const component = this.template.querySelector('c-flat-pickr-input');
         this.currentNextMeetingDate = component?.value || '';
-
+        this.repeatedDetailsWarning = '';
         const mode = this.viewOnlyMode ? 'view' : 'update';
 
         if (!this.currentNextMeetingScheduled || !this.currentRiskAndAction) {
@@ -280,29 +329,52 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
             return;
         }
 
-        const isUpdatingToday = this.currentTask?.recordId && !this.currentTask?.isVirtual;
+        // Always insert a new task and fulfill the previous one
+        // Use currentTask if it exists, otherwise use previousTask for source data
+        // Build new task using previous task details for traceability
+        const source = this.previousTask || this.currentTask;
+        if (!source || !source.opportunityId) {
+            this.showError('Cannot save, source task data is missing.');
+            return;
+        }
+        const prevTaskId = this.previousTask?.recordId;
 
-        const sourceTask = isUpdatingToday ? this.currentTask : this.previousTask;
-
+        // Next Meeting validation: only keep scheduled/date if date is in future
+        let scheduled = this.currentNextMeetingScheduled;
+        let dateVal = this.isCallNotRequired ? null : this.currentNextMeetingDate;
+        if (scheduled === 'Yes') {
+            const mDate = dateVal ? new Date(dateVal) : null;
+            const todayDate = new Date(); todayDate.setHours(0,0,0,0);
+            if (!mDate || mDate <= todayDate) {
+                scheduled = '';
+                dateVal = null;
+            }
+        }
         const newTask = {
-            recordId: isUpdatingToday ? sourceTask.recordId : null,  // only update if today's task
-            opportunityId: sourceTask.opportunityId,
-            oppProjectStatus: sourceTask.oppProjectStatus,
-            accountId: sourceTask.accountId,
+            recordId: null,                 // Always insert a new task
+            previousTaskId: prevTaskId,     // ID of previous task to fulfill
+            opportunityId: source.opportunityId,
+            oppProjectStatus: source.oppProjectStatus,
+            accountId: source.accountId,
             previousDayDate: new Date().toISOString(),
-            lastMeetingDate: sourceTask.nextMeetingDate,
-            previousStep: sourceTask.nextSteps,
-            nextMeetingScheduled: this.currentNextMeetingScheduled,
-            nextMeetingDate: this.isCallNotRequired ? null : this.currentNextMeetingDate,
+            // Use previous task's next meeting date as lastMeetingDate
+            lastMeetingDate: this.previousTask?.nextMeetingDate,
+            previousStep: source.nextSteps,
+            nextMeetingScheduled: scheduled,
+            nextMeetingDate: dateVal,
             nextSteps: this.newNextSteps,
-            previousAgenda: sourceTask.nextAgenda,
+            previousAgenda: source.nextAgenda,
             nextAgenda: this.currentAgenda,
             riskAndAction: this.currentRiskAndAction,
             reason: this.currentReason
         };
 
         insertProjectAssistantTasks({ fieldJson: JSON.stringify([newTask]) })
-            .then(() => {
+            .then((result) => {
+                if (result && result !== 'success') {
+                    this.repeatedDetailsWarning = result;
+                    return;
+                }
                 this.showSuccess('Task saved successfully.');
                 if (this.currentIndex < this.allTaskIds.length - 1) {
                     const nextId = this.allTaskIds[++this.currentIndex];
@@ -409,6 +481,63 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
         const mode = this.viewOnlyMode ? 'view' : 'update';
         if (this.portalUserId && this.managerSelected) {
             this.initiateTaskFlow(mode);
+        }
+    }
+
+    // Fetch project list for master-detail UI
+    async fetchProjectList() {
+        try {
+            const result = await getProjectList({ portalUserId: this.portalUserId });
+            this.projectList = result;
+        } catch (error) {
+            // handle error
+        }
+    }
+
+    // Handle project selection
+    handleProjectSelect(event) {
+        this.selectedProjectId = event.detail.projectId;
+        // fetch details for selected project
+        this.fetchProjectDetails(this.selectedProjectId);
+    }
+
+    // Modal close handlers
+    closeWarningModal() {
+        this.showWarningModal = false;
+    }
+    closeBlockModal() {
+        this.showBlockModal = false;
+    }
+
+    // Dynamic field requirement logic
+    get isNextStepRequired() {
+        return this.currentProjectStatus === 'Go Live' || this.currentProjectStatus === 'Closed';
+    }
+    get isNextMeetingDateRequired() {
+        return (this.currentProjectStatus === 'Go Live' || this.currentProjectStatus === 'Closed') && this.nextMeetingScheduled === 'Yes';
+    }
+
+    // Save handler with backend validation
+    async handleSave() {
+        // Prepare fieldJson and projectStatus
+        const fieldJson = JSON.stringify(this.prepareTaskWrappers());
+        const projectStatus = this.currentProjectStatus;
+        try {
+            const response = await upsertProjectAssistantTask({ fieldJson, projectStatus });
+            if (response.block) {
+                this.blockMessage = response.block;
+                this.showBlockModal = true;
+                return;
+            }
+            if (response.warning) {
+                this.warningMessage = response.warning;
+                this.showWarningModal = true;
+            }
+            if (response.success) {
+                // success logic (refresh, notify, etc.)
+            }
+        } catch (error) {
+            // handle error
         }
     }
 

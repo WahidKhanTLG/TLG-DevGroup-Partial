@@ -15,7 +15,13 @@
 		"vscode": {
 			"extensions": [
 				"salesforce.salesforce-extension-pack",
-				"GitHub.vscode-pull-request-github"
+				"GitHub.vscode-pull-request-github",
+				"salesforce.salesforcedx-vscode-lwc",
+				"salesforce.salesforcedx-vscode",
+				"GitHub.copilot",
+				"GitHub.copilot-chat",
+				"salesforce.salesforcedx-vscode-apex-replay-debugger",
+				"salesforce.salesforcedx-vscode-apex-debugger"
 			]
 		}
 	}
