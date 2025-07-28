@@ -22,6 +22,7 @@ public without sharing class ProjectMonitoringNavController {
                 WHERE Fulfilled__c = FALSE
                 AND Opportunity__r.Portal_User_Owner__c = :portalUserId
                 AND Opportunity__r.StageName = 'Closed Won'
+                AND Opportunity__r.Project_Status__c = 'In Development'
                 AND Due_Date__c = :Date.today()
             ];
             for(Project_Assistant_Task__c task : dueTodayTasks) {
@@ -703,6 +704,19 @@ public without sharing class ProjectMonitoringNavController {
         public ProjectTaskDetailWrapper(ProjectAssistantTaskWrapper current, ProjectAssistantTaskWrapper previous) {
             this.current = current;
             this.previous = previous;
+        }
+    }
+
+    @AuraEnabled
+    public static void updatePreviousTaskFulfilled(Id taskId) {
+        try {
+            Project_Assistant_Task__c recordToUpdate = new Project_Assistant_Task__c(
+                Id = taskId,
+                Fulfilled__c = true
+            );
+            update recordToUpdate;
+        } catch (Exception e) {
+            throw new AuraHandledException('Failed to mark task as fulfilled: ' + e.getMessage());
         }
     }
 

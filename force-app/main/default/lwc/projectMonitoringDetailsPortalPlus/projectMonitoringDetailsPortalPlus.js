@@ -1,5 +1,6 @@
 import { LightningElement, api, wire, track } from 'lwc';
 import { CurrentPageReference } from 'lightning/navigation';
+import { ShowToastEvent } from 'lightning/platformShowToastEvent';
 
 import getTaskDetailsById from '@salesforce/apex/ProjectMonitoringNavController.getTaskDetailsById';
 import insertProjectAssistantTasks from '@salesforce/apex/ProjectMonitoringNavController.insertProjectAssistantTasks';
@@ -7,6 +8,7 @@ import getProjectIds from '@salesforce/apex/ProjectMonitoringNavController.getPr
 import getPicklistValues from '@salesforce/apex/PortalPlusUtils.getPicklistValues';
 import getProjectManagers from '@salesforce/apex/ProjectMonitoringNavController.getProjectManagers';
 import upsertProjectAssistantTask from '@salesforce/apex/ProjectMonitoringNavController.upsertProjectAssistantTask';
+import updatePreviousTaskFulfilled from '@salesforce/apex/ProjectMonitoringNavController.updatePreviousTaskFulfilled';
 
 export default class ProjectMonitoringDetailsPortalPlus extends LightningElement {
     @api portalUserId = '';
@@ -31,13 +33,87 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
     @track currentAgenda = '';
     @track currentRiskAndAction = '';
     @track currentReason = '';
+    @track currentSupportEndDate = '';
+    @track currentSupportPlan = '';
 
     @track selectedStatusFilter = 'Due Today';
 
     @track showModeSelectModal = false;
     @track noTasksError = false;
+    @track skipSupport = false;
+    @track showConfirmNoSupportModal = false;
 
     @track viewOnlyMode = false;
+
+    // Show support-related fields only when follow-up required
+    get showSupportFields() {
+        return this.currentNextMeetingScheduled === 'Yes' && !this.skipSupport;
+    }
+    // Show Go Live specific support fields
+    get showGoLiveSupportFields() {
+        return this.isGoLiveStatus && this.currentNextMeetingScheduled === 'Yes' && !this.skipSupport;
+    }
+    
+    // Show reason field when Go Live support is not required
+    get showGoLiveReasonField() {
+        return this.isGoLiveStatus && this.currentNextMeetingScheduled === 'No' && this.skipSupport;
+    }
+    
+    // Show reason field when Closed status and no follow-up required
+    get showClosedReasonField() {
+        return this.isClosedStatus && this.currentNextMeetingScheduled === 'No';
+    }
+    
+    // Hide Risk & Action field when Go Live support is not required, also hide for Closed No follow-up
+    get showRiskAndActionField() {
+        if (this.isGoLiveStatus) {
+            return this.currentNextMeetingScheduled === 'Yes' && !this.skipSupport;
+        } else if (this.isClosedStatus) {
+            return this.currentNextMeetingScheduled === 'Yes'; // Show only when follow-up required
+        } else if (this.isInDevelopmentStatus) {
+            return true; // Show for In Development
+        }
+        return true; // Show for all other statuses
+    }
+    
+    // Dynamic label for Follow Up Required field
+    get followUpRequiredLabel() {
+        if (this.isGoLiveStatus) {
+            return 'Follow Up Required?';
+        } else if (this.isClosedStatus) {
+            return 'Next Follow Up Required?';
+        }
+        return 'Next Meeting Scheduled';
+    }
+    
+    // Show Closed status specific support fields (follow up date and plan)
+    get showClosedSupportFields() {
+        return this.isClosedStatus && this.currentNextMeetingScheduled === 'Yes';
+    }
+    
+    // Dynamic label for Next Meeting Date field in Closed status
+    get nextMeetingDateLabel() {
+        return this.isClosedStatus ? 'Next Follow up Date' : 'Next Meeting Date';
+    }
+    
+    // Dynamic label for Next Meeting Agenda field in Closed status  
+    get nextMeetingAgendaLabel() {
+        return this.isClosedStatus ? 'Follow up Plan' : 'Next Meeting Agenda';
+    }
+    
+    // Show Next Steps field (hidden for Closed status)
+    get showNextStepsField() {
+        return this.isInDevelopmentStatus && !this.isClosedStatus;
+    }
+    
+    // Show agenda field when support fields visible but not in Go Live follow-up context
+    get showNextAgendaField() {
+        return this.showSupportFields && !this.isGoLiveStatus;
+    }
+    // Show In Development support fields when follow-up required
+    get showInDevSupportFields() {
+        return this.isInDevelopmentStatus && this.showSupportFields;
+    }
 
     @track projectStatusOptions = [];
     meetingScheduledOptions = [
@@ -167,6 +243,10 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
         return this.previousProjectStatusLabel === 'Go Live';
     }
 
+    get isInDevelopmentStatus() {
+        return this.previousProjectStatusLabel === 'In Development';
+    }
+
     get isClosedOrGoLive() {
         return this.isClosedStatus || this.isGoLiveStatus;
     }
@@ -217,29 +297,30 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
     }
 
     get previousDayDate() {
-        return this.previousTask ? this.previousTask.previousDayDate : null;
+        return this.currentTask ? this.currentTask.dueDate : null;
     }
-    // Show the previous record's "next meeting date" as the last meeting date for traceability
+    // Show the current record's "lastMeetingDate" as the last meeting date
     get lastMeetingDate() {
-        return this.previousTask ? this.previousTask.nextMeetingDate : null;
+        return this.currentTask ? this.currentTask.lastMeetingDate : null;
     }
-    // Show the previous record's "next steps" as the previous step on load
+    // Show the current record's "nextSteps" as the previous step for UI display
     get previousStep() {
-        return this.previousTask ? this.previousTask.nextSteps || '' : '';
+        return this.currentTask ? this.currentTask.nextSteps || '' : '';
     }
-    // Show the previous record's "next agenda" as the previous agenda on load
+    // Show the current record's "nextAgenda" as the previous agenda for UI display
     get previousAgenda() {
-        return this.previousTask ? this.previousTask.nextAgenda || '' : '';
+        return this.currentTask ? this.currentTask.nextAgenda || '' : '';
     }
+
     // Optionally expose other previous fields
     get previousMeetingScheduled() {
-        return this.previousTask ? this.previousTask.nextMeetingScheduled : '';
+        return this.currentTask ? this.currentTask.nextMeetingScheduled : '';
     }
     get previousRiskAndAction() {
-        return this.previousTask ? this.previousTask.riskAndAction : '';
+        return this.currentTask ? this.currentTask.riskAndAction : '';
     }
     get previousReason() {
-        return this.previousTask ? this.previousTask.reason : '';
+        return this.currentTask ? this.currentTask.reason : '';
     }
 
     get mappedMeetingScheduledOptions() {
@@ -251,7 +332,74 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
     }
 
     handleChangeManager() {
-        window.location.href = window.location.pathname;
+        // Reset all state to show project manager selection again
+        this.portalUserId = '';
+        this.managerSelected = false;
+        this.isSelectManager = true;
+        this.currentTask = null;
+        this.previousTask = null;
+        this.allTaskIds = [];
+        this.currentIndex = 0;
+        this.currentRecordId = '';
+        this.noTasksError = false;
+        this.isLoading = false;
+        
+        // Reset all input fields
+        this.resetAllInputs();
+    }
+
+    resetAllInputs() {
+        this.currentNextMeetingScheduled = '';
+        this.currentNextMeetingDate = '';
+        this.newNextSteps = '';
+        this.currentAgenda = '';
+        this.currentRiskAndAction = '';
+        this.currentReason = '';
+        this.currentSupportEndDate = '';
+        this.currentSupportPlan = '';
+        this.repeatedDetailsWarning = '';
+    }
+
+    handleStatusFilterChange(event) {
+        const newFilter = event.target.value;
+        this.selectedStatusFilter = newFilter;
+        
+        // If a project manager is already selected, reload data with new filter
+        if (this.portalUserId && this.managerSelected) {
+            this.isLoading = true;
+            this.currentTask = null;
+            this.previousTask = null;
+            this.allTaskIds = [];
+            this.currentIndex = 0;
+            this.currentRecordId = '';
+            this.noTasksError = false;
+            
+            // Determine mode based on current view mode
+            const mode = this.viewOnlyMode ? 'view' : 'update';
+            
+            getProjectIds({ 
+                portalUserId: this.portalUserId, 
+                mode: mode, 
+                statusFilter: this.selectedStatusFilter 
+            })
+            .then(projectIds => {
+                if (!projectIds || projectIds.length === 0) {
+                    this.noTasksError = true;
+                    return;
+                }
+                this.allTaskIds = projectIds;
+                this.currentIndex = 0;
+                this.currentRecordId = projectIds[0];
+                this.fetchTaskDetails(this.currentRecordId);
+            })
+            .catch(error => {
+                this.showError('Failed to load projects with selected filter.');
+                console.error('Filter change error:', error);
+            })
+            .finally(() => {
+                this.isLoading = false;
+            });
+        }
     }
 
     fetchTaskDetails(opportunityId) {
@@ -288,13 +436,65 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
         this.currentAgenda = '';
         this.currentRiskAndAction = '';
         this.currentReason = '';
+        this.currentSupportEndDate = '';
+        this.currentSupportPlan = '';
     }
 
-    handleNextMeetingScheduledChange(e) { this.currentNextMeetingScheduled = e.target.value; }
+    handleNextMeetingScheduledChange(e) {
+        const newVal = e.target.value;
+        
+        // For Go Live context, confirm when toggling from Yes to No
+        if (this.isGoLiveStatus && this.currentNextMeetingScheduled === 'Yes' && newVal === 'No') {
+            this.showConfirmNoSupportModal = true;
+            return;
+        }
+        
+        this.currentNextMeetingScheduled = newVal;
+        
+        // Reset support flags when Yes
+        if (newVal === 'Yes') {
+            this.skipSupport = false;
+        }
+        
+        // For Go Live - if No is selected and confirmed, hide support fields and show reason
+        if (this.isGoLiveStatus && newVal === 'No' && this.skipSupport) {
+            // Clear support field values when hidden
+            this.currentSupportEndDate = '';
+            this.currentSupportPlan = '';
+        }
+    }
+
+    confirmNoSupportYes() {
+        // User confirms no post-go-live support is required
+        this.currentNextMeetingScheduled = 'No';
+        this.skipSupport = true;
+        this.showConfirmNoSupportModal = false;
+        
+        // Clear support fields since they will be hidden
+        this.currentSupportEndDate = '';
+        this.currentSupportPlan = '';
+        this.currentRiskAndAction = '';
+    }
+    
+    confirmNoSupportNo() {
+        // User cancels, revert to Yes (support is required)
+        this.currentNextMeetingScheduled = 'Yes';
+        this.skipSupport = false;
+        this.showConfirmNoSupportModal = false;
+    }
 
     handleNextMeetingDateChange(e) {
         const component = this.template.querySelector('c-flat-pickr-input');
         this.currentNextMeetingDate = component?.value || '';
+    }
+    // Handle Go Live support end date change
+    handleSupportEndDateChange(e) {
+        const component = this.template.querySelector('c-flat-pickr-input[data-id="supportEnd"]');
+        this.currentSupportEndDate = component?.value || '';
+    }
+    // Handle Go Live support plan change
+    handleSupportPlanChange(e) {
+        this.currentSupportPlan = e.target.value;
     }
 
     handleNextStepsChange(e) { this.newNextSteps = e.target.value; }
@@ -304,15 +504,42 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
 
     handleProjectStatusChange(e) {
         const newStatus = e.target.value;
+        const previousStatus = this.previousTask?.oppProjectStatus;
         this.previousTask = { ...this.previousTask, oppProjectStatus: newStatus };
 
-        if (['Go Live', 'Closed'].includes(newStatus)) {
-            this.showTaskModal = true;
+        // Reset Go Live specific flags when changing to any other status
+        if (newStatus !== 'Go Live') {
+            this.skipSupport = false;
+            this.showConfirmNoSupportModal = false;
+            // Clear Go Live specific fields
+            this.currentSupportEndDate = '';
+            this.currentSupportPlan = '';
+        }
 
+        // For Go Live status, don't show modal - just set default and let fields appear
+        if (newStatus === 'Go Live') {
+            // Set default value for Follow Up Required if not already set
             if (!this.currentNextMeetingScheduled) {
                 this.currentNextMeetingScheduled = 'Yes';
             }
         }
+        // For Closed status, show modal for confirmation
+        else if (newStatus === 'Closed') {
+            this.showTaskModal = true;
+            // For Closed status, clear the Next Meeting Scheduled to force user selection
+            this.currentNextMeetingScheduled = '';
+        }
+        // For In Development status, ensure fields are properly reset
+        else if (newStatus === 'In Development') {
+            // Reset to default In Development values if not set
+            if (!this.currentNextMeetingScheduled) {
+                this.currentNextMeetingScheduled = 'Yes';
+            }
+        }
+    }
+
+    closeTaskModal() {
+        this.showTaskModal = false;
     }
 
     @track repeatedDetailsWarning = '';
@@ -323,7 +550,13 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
         this.repeatedDetailsWarning = '';
         const mode = this.viewOnlyMode ? 'view' : 'update';
 
-        if (!this.currentNextMeetingScheduled || !this.currentRiskAndAction) {
+        if (!this.currentNextMeetingScheduled) {
+            this.showError('Please complete all required fields.');
+            return;
+        }
+
+        // Risk & Action is required for In Development but optional for Closed
+        if (!this.currentRiskAndAction && this.isInDevelopmentStatus) {
             this.showError('Please complete all required fields.');
             return;
         }
@@ -348,15 +581,49 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
             return;
         }
 
-        // Always insert a new task and fulfill the previous one
-        // Use currentTask if it exists, otherwise use previousTask for source data
-        // Build new task using previous task details for traceability
-        const source = this.previousTask || this.currentTask;
+        if (this.isGoLiveStatus && this.currentNextMeetingScheduled === 'Yes') {
+            if (!this.currentNextMeetingDate) {
+                this.showError('Post Go Live Support Start date is required.');
+                return;
+            }
+            if (!this.currentSupportEndDate) {
+                this.showError('Post Go Live Support End date is required.');
+                return;
+            }
+            if (!this.currentSupportPlan) {
+                this.showError('Post Go Live Support Plan is required.');
+                return;
+            }
+        }
+
+        // Validate Closed status required fields
+        if (this.isClosedStatus && this.currentNextMeetingScheduled === 'Yes') {
+            if (!this.currentNextMeetingDate) {
+                this.showError('Next Follow up Date is required.');
+                return;
+            }
+            if (!this.currentAgenda) {
+                this.showError('Follow up Plan is required.');
+                return;
+            }
+        }
+
+        // Validate Closed status reason when no follow-up required
+        if (this.isClosedStatus && this.currentNextMeetingScheduled === 'No') {
+            if (!this.currentReason) {
+                this.showError('Reason is required.');
+                return;
+            }
+        }
+
+        // Always insert a new task and fulfill the current one
+        // Use currentTask for source data as per business logic
+        const source = this.currentTask;
         if (!source || !source.opportunityId) {
-            this.showError('Cannot save, source task data is missing.');
+            this.showError('Cannot save, current task data is missing.');
             return;
         }
-        const prevTaskId = this.previousTask?.recordId;
+        const currentTaskId = this.currentTask?.recordId;
 
         // Next Meeting validation: only keep scheduled/date if date is in future
         let scheduled = this.currentNextMeetingScheduled;
@@ -370,22 +637,27 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
             }
         }
         const newTask = {
-            recordId: null,                 // Always insert a new task
-            previousTaskId: prevTaskId,     // ID of previous task to fulfill
+            recordId: null,
+            previousTaskId: currentTaskId,
             opportunityId: source.opportunityId,
             oppProjectStatus: source.oppProjectStatus,
             accountId: source.accountId,
-            previousDayDate: new Date().toISOString(),
-            // Use previous task's next meeting date as lastMeetingDate
-            lastMeetingDate: this.previousTask?.nextMeetingDate,
-            previousStep: source.nextSteps,
+            
+            // Field mapping from Previous Action card → New Record
+            lastMeetingDate: this.currentTask.lastMeetingDate,
+            previousStep: this.currentTask.nextSteps,
+            previousAgenda: this.currentTask.nextAgenda,
+            
+            // Field mapping from Goals for Today card → New Record  
+            nextAgenda: this.currentAgenda,
+            nextSteps: this.newNextSteps,
+            riskAndAction: this.currentRiskAndAction,
             nextMeetingScheduled: scheduled,
             nextMeetingDate: dateVal,
-            nextSteps: this.newNextSteps,
-            previousAgenda: source.nextAgenda,
-            nextAgenda: this.currentAgenda,
-            riskAndAction: this.currentRiskAndAction,
-            reason: this.currentReason
+            
+            // Additional fields
+            reason: this.currentReason,
+            previousDayDate: new Date().toISOString()
         };
 
         insertProjectAssistantTasks({ fieldJson: JSON.stringify([newTask]) })
@@ -394,69 +666,173 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
                     this.repeatedDetailsWarning = result;
                     return;
                 }
-                this.showSuccess('Task saved successfully.');
-                if (this.currentIndex < this.allTaskIds.length - 1) {
-                    const nextId = this.allTaskIds[++this.currentIndex];
-                    const encodedAll = btoa(JSON.stringify(this.allTaskIds));
-                    const urlParams = btoa(`portalUserId=${this.portalUserId}&record=${nextId}&allRecordIds=${encodedAll}&mode=${mode}&statusFilter=${this.selectedStatusFilter}`);
-                    window.location.href = `${window.location.pathname}?data=${urlParams}`;
-                } else {
-                    this.showSuccess('All tasks completed.');
-                    this.currentTask = null;
-                    window.location.href = window.location.pathname.split('?')[0];
+                // Mark current task as fulfilled
+                const currentId = this.currentTask?.recordId;
+                if (currentId) {
+                    updatePreviousTaskFulfilled({ taskId: currentId })
+                        .catch(error => {
+                            console.error('Error updating current task fulfilled status:', error);
+                        });
                 }
+
+                // Navigate to next record or refresh task list
+                this.handleNavigationAfterSave();
             })
-            .catch(() => this.showError('Task save failed.'));
+            .catch(error => {
+                this.showError('Error saving task details: ' + error.body.message);
+            });
+    }
+
+    handleNavigationAfterSave() {
+        // If in view-only mode, simply refresh the view
+        if (this.viewOnlyMode) {
+            this.fetchTaskDetails(this.currentRecordId);
+            return;
+        }
+
+        // For edit mode, refresh the task list to get updated "Due Today" records
+        // This ensures we get the latest list without fulfilled records and any new due records
+        this.isLoading = true;
+        
+        const mode = this.viewOnlyMode ? 'view' : 'update';
+        
+        getProjectIds({ 
+            portalUserId: this.portalUserId, 
+            mode: mode, 
+            statusFilter: this.selectedStatusFilter 
+        })
+        .then(updatedProjectIds => {
+            if (!updatedProjectIds || updatedProjectIds.length === 0) {
+                // No more records available for this PM with current filter
+                this.noTasksError = true;
+                this.currentTask = null;
+                this.previousTask = null;
+                this.allTaskIds = [];
+                this.currentIndex = 0;
+                this.currentRecordId = '';
+                this.showError('No more tasks available for the selected Project Manager and filter.');
+                return;
+            }
+            
+            // Update task list with fresh data
+            this.allTaskIds = updatedProjectIds;
+            this.currentIndex = 0;
+            this.currentRecordId = updatedProjectIds[0];
+            
+            // Navigate to first record in updated list
+            const baseUrl = window.location.origin + window.location.pathname;
+            const queryParams = `?data=${btoa(JSON.stringify({
+                portalUserId: this.portalUserId,
+                record: this.currentRecordId,
+                allRecordIds: btoa(JSON.stringify(this.allTaskIds)),
+                mode: 'edit',
+                statusFilter: this.selectedStatusFilter
+            }))}`;
+            window.location.href = baseUrl + queryParams;
+        })
+        .catch(error => {
+            this.showError('Failed to load next task.');
+            console.error('Navigation after save error:', error);
+            // Fallback: just refresh current record
+            this.fetchTaskDetails(this.currentRecordId);
+        })
+        .finally(() => {
+            this.isLoading = false;
+        });
+    }
+
+    handleNavigation() {
+        // This method is for regular navigation (not after save)
+        // If in view-only mode, simply refresh the view
+        if (this.viewOnlyMode) {
+            this.fetchTaskDetails(this.currentRecordId);
+            return;
+        }
+
+        // In edit mode, navigate to the next record in the existing list
+        const nextIndex = this.currentIndex + 1;
+        if (nextIndex < this.allTaskIds.length) {
+            const nextRecordId = this.allTaskIds[nextIndex];
+            const baseUrl = window.location.origin + window.location.pathname;
+            const queryParams = `?data=${btoa(JSON.stringify({
+                portalUserId: this.portalUserId,
+                record: nextRecordId,
+                allRecordIds: btoa(JSON.stringify(this.allTaskIds)),
+                mode: 'edit',
+                statusFilter: this.selectedStatusFilter
+            }))}`;
+            window.location.href = baseUrl + queryParams;
+        } else {
+            // If no more records, refresh task list to check for new due records
+            this.handleNavigationAfterSave();
+        }
     }
 
     handlePrevious() {
+        // Navigate to previous record without saving
         if (this.currentIndex > 0) {
-            const mode = this.viewOnlyMode ? 'view' : 'update';
-            const prevId = this.allTaskIds[--this.currentIndex];
-            const encodedAll = btoa(JSON.stringify(this.allTaskIds));
-            const urlParams = btoa(`portalUserId=${this.portalUserId}&record=${prevId}&allRecordIds=${encodedAll}&mode=${mode}&statusFilter=${this.selectedStatusFilter}`);
-            window.location.href = `${window.location.pathname}?data=${urlParams}`;
+            const prevIndex = this.currentIndex - 1;
+            const prevRecordId = this.allTaskIds[prevIndex];
+            const baseUrl = window.location.origin + window.location.pathname;
+            const queryParams = `?data=${btoa(JSON.stringify({
+                portalUserId: this.portalUserId,
+                record: prevRecordId,
+                allRecordIds: btoa(JSON.stringify(this.allTaskIds)),
+                mode: this.viewOnlyMode ? 'view' : 'edit',
+                statusFilter: this.selectedStatusFilter
+            }))}`;
+            window.location.href = baseUrl + queryParams;
+        } else {
+            this.showError('This is the first record in the list.');
         }
+    }
+
+    handleNext() {
+        // Navigate to next record without saving
+        if (this.currentIndex < this.allTaskIds.length - 1) {
+            const nextIndex = this.currentIndex + 1;
+            const nextRecordId = this.allTaskIds[nextIndex];
+            const baseUrl = window.location.origin + window.location.pathname;
+            const queryParams = `?data=${btoa(JSON.stringify({
+                portalUserId: this.portalUserId,
+                record: nextRecordId,
+                allRecordIds: btoa(JSON.stringify(this.allTaskIds)),
+                mode: this.viewOnlyMode ? 'view' : 'edit',
+                statusFilter: this.selectedStatusFilter
+            }))}`;
+            window.location.href = baseUrl + queryParams;
+        } else {
+            this.showError('This is the last record in the list.');
+        }
+    }
+
+    // Helper getters for navigation UI
+    get isFirstRecord() {
+        return this.currentIndex === 0;
+    }
+
+    get isLastRecord() {
+        return this.currentIndex === this.allTaskIds.length - 1;
+    }
+
+    get currentRecordPosition() {
+        if (!this.allTaskIds || this.allTaskIds.length === 0) return '';
+        return `${this.currentIndex + 1} of ${this.allTaskIds.length}`;
     }
 
     handleSkip() {
-        const mode = this.viewOnlyMode ? 'view' : 'update';
-        if (this.currentIndex < this.allTaskIds.length - 1) {
-            const nextId = this.allTaskIds[++this.currentIndex];
-            console.log('Skipping to next task:', nextId);
-            const encodedAll = btoa(JSON.stringify(this.allTaskIds));
-            const urlParams = btoa(`portalUserId=${this.portalUserId}&record=${nextId}&allRecordIds=${encodedAll}&mode=${mode}&statusFilter=${this.selectedStatusFilter}`);
-            console.log('this.allTaskIds:', this.allTaskIds);
-            window.location.href = `${window.location.pathname}?data=${urlParams}`;
-        } else {
-            this.showSuccess('All tasks completed.');
-            this.currentTask = null;
-            window.location.href = window.location.pathname.split('?')[0];
-        }
-    }
-
-    closeTaskModal() {
-        this.showTaskModal = false;
-    }
-
-    showSuccess(message) {
-        this.template.querySelector('c-show-toastr').showSuccess(message, 'Success');
+        // Skip current record in view-only mode (navigate to next without saving)
+        this.handleNext();
     }
 
     showError(message) {
-        this.template.querySelector('c-show-toastr').showError(message, 'Error');
-    }
-
-    closeModeSelectModal() {
-        this.showModeSelectModal = false;
-    }
-
-    handleViewMode() {
-        this.initiateTaskFlow('view');
-    }
-
-    handleUpdateMode() {
-        this.initiateTaskFlow('update');
+        const evt = new ShowToastEvent({
+            title: 'Error',
+            message,
+            variant: 'error',
+            mode: 'dismissable'
+        });
+        this.dispatchEvent(evt);
     }
 
     handleProjectManagerChange(event) {
@@ -465,99 +841,36 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
             this.showError('Please select a Project Manager');
             return;
         }
-        this.showModeSelectModal = true;
-    }
-
-    initiateTaskFlow(mode) {
-        this.showModeSelectModal = false;
-
-        getProjectIds({
-            portalUserId: this.portalUserId,
-            mode: mode,
-            statusFilter: this.selectedStatusFilter
+        // Hide selection UI
+        this.managerSelected = true;
+        this.isSelectManager = false;
+        // Load first project for selected manager immediately with current filter
+        this.isLoading = true;
+        
+        // Determine mode - default to 'update' unless in view mode
+        const mode = this.viewOnlyMode ? 'view' : 'update';
+        
+        getProjectIds({ 
+            portalUserId: this.portalUserId, 
+            mode: mode, 
+            statusFilter: this.selectedStatusFilter 
         })
         .then(projectIds => {
-            if (!projectIds || !projectIds.length) {
+            if (!projectIds || projectIds.length === 0) {
                 this.noTasksError = true;
-                this.currentTask = null;
-                this.isSelectManager = false;
-                this.managerSelected = true;
                 return;
             }
-
-            const firstId = projectIds[0];
-            const encodedAll = btoa(JSON.stringify(projectIds));
-            const urlParams = btoa(`portalUserId=${this.portalUserId}&record=${firstId}&allRecordIds=${encodedAll}&mode=${mode}&statusFilter=${this.selectedStatusFilter}`);
-            window.location.href = `${window.location.pathname}?data=${urlParams}`;
+            this.allTaskIds = projectIds;
+            this.currentIndex = 0;
+            this.currentRecordId = projectIds[0];
+            this.fetchTaskDetails(this.currentRecordId);
         })
-        .catch(() => {
-            this.showError('Failed to get project list.');
+        .catch(error => {
+            this.showError('Failed to load projects for the selected manager.');
+            console.error('Project manager change error:', error);
+        })
+        .finally(() => {
+            this.isLoading = false;
         });
     }
-
-    handleStatusFilterChange(event) {
-        this.selectedStatusFilter = event.target.value;
-        const mode = this.viewOnlyMode ? 'view' : 'update';
-        if (this.portalUserId && this.managerSelected) {
-            this.initiateTaskFlow(mode);
-        }
-    }
-
-    // Fetch project list for master-detail UI
-    async fetchProjectList() {
-        try {
-            const result = await getProjectList({ portalUserId: this.portalUserId });
-            this.projectList = result;
-        } catch (error) {
-            // handle error
-        }
-    }
-
-    // Handle project selection
-    handleProjectSelect(event) {
-        this.selectedProjectId = event.detail.projectId;
-        // fetch details for selected project
-        this.fetchProjectDetails(this.selectedProjectId);
-    }
-
-    // Modal close handlers
-    closeWarningModal() {
-        this.showWarningModal = false;
-    }
-    closeBlockModal() {
-        this.showBlockModal = false;
-    }
-
-    // Dynamic field requirement logic
-    get isNextStepRequired() {
-        return this.currentProjectStatus === 'Go Live' || this.currentProjectStatus === 'Closed';
-    }
-    get isNextMeetingDateRequired() {
-        return (this.currentProjectStatus === 'Go Live' || this.currentProjectStatus === 'Closed') && this.nextMeetingScheduled === 'Yes';
-    }
-
-    // Save handler with backend validation
-    async handleSave() {
-        // Prepare fieldJson and projectStatus
-        const fieldJson = JSON.stringify(this.prepareTaskWrappers());
-        const projectStatus = this.currentProjectStatus;
-        try {
-            const response = await upsertProjectAssistantTask({ fieldJson, projectStatus });
-            if (response.block) {
-                this.blockMessage = response.block;
-                this.showBlockModal = true;
-                return;
-            }
-            if (response.warning) {
-                this.warningMessage = response.warning;
-                this.showWarningModal = true;
-            }
-            if (response.success) {
-                // success logic (refresh, notify, etc.)
-            }
-        } catch (error) {
-            // handle error
-        }
-    }
-
 }
