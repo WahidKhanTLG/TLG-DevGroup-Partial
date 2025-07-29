@@ -10,8 +10,10 @@
                     <div
                         class="app-content-menu menu menu-rounded menu-gray-800 menu-state-bg flex-wrap fs-5 fw-semibold border-bottom pt-5 pb-6 px-10 mb-10">
                         <div class="d-flex justify-content-between align-items-center w-100">
-                            <h1 lwc:if={previousTask} class="text-dark fw-bolder fs-2">{previousTask.accountName}</h1>
-                            <h1 lwc:else class="text-dark fw-bolder fs-2">Project Monitoring</h1>
+                            <div class="d-flex align-items-center gap-3">
+                                <h1 lwc:if={previousTask} class="text-dark fw-bolder fs-2">{previousTask.accountName}</h1>
+                                <h1 lwc:else class="text-dark fw-bolder fs-2">Project Monitoring</h1>
+                            </div>
                             <template lwc:if={managerSelected}>
                                 <div class="d-flex align-items-center gap-3">
                                     <button class="btn btn-primary" onclick={handleChangeManager}>
@@ -56,18 +58,85 @@
                                             monitoring.
                                         </div>
                                     </div>
-                                    <!-- Radio Options -->
+                                    <!-- Enhanced Radio Options with Statistics -->
                                     <div class="fv-row">
-                                        <div class="row row-cols-1 row-cols-md-3 g-4">
+                                        <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
                                             <template for:each={projectManagers} for:item="item">
                                                 <div class="col" key={item.value}>
                                                     <input type="radio" id={item.value} name="framework"
                                                         value={item.value} class="btn-check validate"
                                                         onchange={handleProjectManagerChange} checked={item.checked} />
-                                                    <label
-                                                        class="btn btn-outline btn-outline-dashed btn-active-light-primary p-7 d-flex align-items-center w-100 justify-content-center"
-                                                        for={item.value}>
-                                                        <span class="text-gray-700 fw-bold fs-6">{item.label}</span>
+                                    <label
+                                        class="btn btn-outline btn-outline-dashed btn-active-light-primary p-4 d-flex flex-column w-100 h-100 position-relative"
+                                        for={item.value}
+                                        style="min-height: 200px;"
+                                        data-completed={item.allUpdated}
+                                        data-needs-attention={item.needsAttention}>                                                        <!-- Status Icon -->
+                                                        <div class="position-absolute top-0 end-0 m-2">
+                                                            <i class="bi {item.statusIcon} {item.statusColor} fs-3" 
+                                                                title={item.statusText}></i>
+                                                        </div>
+                                                        
+                                                        <!-- Manager Info -->
+                                                        <div class="text-center flex-grow-1 d-flex flex-column justify-content-center">
+                                                            <!-- Manager Name -->
+                                                            <div class="mb-3">
+                                                                <h6 class="text-gray-700 fw-bold mb-1">{item.label}</h6>
+                                                                <template lwc:if={item.designation}>
+                                                                    <span class="badge bg-light-secondary text-secondary fs-7">{item.designation}</span>
+                                                                </template>
+                                                            </div>
+                                                            
+                                                            <!-- Project Statistics -->
+                                                            <div class="mt-auto">
+                                                                <div class="row g-2 text-center">
+                                                                    <div class="col-6">
+                                                                        <div class="bg-light-primary rounded p-2">
+                                                                            <div class="fs-3 fw-bold text-primary">{item.totalProjects}</div>
+                                                                            <div class="fs-8 text-muted">Total Projects</div>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div class="col-6">
+                                                                        <div class="bg-light-success rounded p-2">
+                                                                            <div class="fs-3 fw-bold text-success">{item.updatedToday}</div>
+                                                                            <div class="fs-8 text-muted">Updated Today</div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                
+                                                                <!-- Progress Indicator -->
+                                                                <template lwc:if={item.totalProjects}>
+                                                                    <div class="mt-3">
+                                                                        <div class="d-flex justify-content-between align-items-center mb-1">
+                                                                            <small class="text-muted">Progress</small>
+                                                                            <small class="fw-bold">{item.progressPercentage}%</small>
+                                                                        </div>
+                                                                        <div class="progress" style="height: 8px;">
+                                                                            <div class="progress-bar bg-success" 
+                                                                                role="progressbar" 
+                                                                                aria-valuenow={item.progressPercentage} 
+                                                                                aria-valuemin="0" 
+                                                                                aria-valuemax="100"
+                                                                                onload={setProgressWidth}>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div class="text-center mt-1">
+                                                                            <span class="fs-8 text-muted">
+                                                                                {item.updatedToday} of {item.totalProjects} projects
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+                                                                </template>
+                                                                
+                                                                <!-- Status Badge -->
+                                                                <div class="mt-2">
+                                                                    <span class="badge {item.statusBadgeClass} fs-7">
+                                                                        <i class="bi {item.statusIcon} me-1"></i>
+                                                                        {item.statusText}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
                                                     </label>
                                                 </div>
                                             </template>
@@ -109,8 +178,8 @@
                         <div class="row gx-5 gx-xl-10">
                             <!-- Project Details -->
                             <div class="col-xxl-4 mb-5">
-                                <div class="card card-flush h-xl-100 shadow" style={priorityLineStyle}>
-                                    <div class="card-header bg-light-primary">
+                                <div class="card card-flush h-xl-100 shadow">
+                                    <div class={priorityCardClass}>
                                         <div class="card-title">
                                             <h2 class="fw-bold text-primary">Project Details</h2>
                                         </div>
@@ -254,13 +323,34 @@
                                                 </div>
                                                 <div class="card-body">
                                                     <!-- Next Meeting Scheduled / Follow-up Required -->
-                                                    <div class="mb-3">
+                                                    <div class="mb-3 position-relative">
                                                         <label class="form-label fw-semibold">{followUpRequiredLabel}</label>
-                                                        <select class="form-select" onchange={handleNextMeetingScheduledChange} disabled={viewOnlyMode}>
-                                                            <template for:each={mappedMeetingScheduledOptions} for:item="opt">
-                                                                <option key={opt.value} value={opt.value} selected={opt.selected}>{opt.label}</option>
+                                                        <template lwc:if={viewOnlyMode}>
+                                                            <template lwc:if={isEditingMeetingScheduled}>
+                                                                <select class="form-select" data-field="nextMeetingScheduled" 
+                                                                    onchange={handleNextMeetingScheduledChange} onblur={handleFieldBlur}>
+                                                                    <template for:each={mappedMeetingScheduledOptions} for:item="opt">
+                                                                        <option key={opt.value} value={opt.value} selected={opt.selected}>{opt.label}</option>
+                                                                    </template>
+                                                                </select>
                                                             </template>
-                                                        </select>
+                                                            <template lwc:else>
+                                                                <div class="form-control bg-light border border-2 border-dashed position-relative" 
+                                                                    data-field="nextMeetingScheduled" onclick={handleFieldClick} 
+                                                                    style="cursor: pointer; min-height: 38px;">
+                                                                    <span class={meetingScheduledDisplayClass}>{meetingScheduledDisplay}</span>
+                                                                    <i class="bi bi-pencil-square position-absolute text-muted" 
+                                                                        style="top: 8px; right: 8px; font-size: 14px;"></i>
+                                                                </div>
+                                                            </template>
+                                                        </template>
+                                                        <template lwc:else>
+                                                            <select class="form-select" onchange={handleNextMeetingScheduledChange}>
+                                                                <template for:each={mappedMeetingScheduledOptions} for:item="opt">
+                                                                    <option key={opt.value} value={opt.value} selected={opt.selected}>{opt.label}</option>
+                                                                </template>
+                                                            </select>
+                                                        </template>
                                                     </div>
 
                                                     <!-- Next Meeting Date for In Development follow-up -->
@@ -297,24 +387,58 @@
 
                                                     <!-- Meeting Agenda Fields -->
                                                     <template lwc:if={showClosedSupportFields}>
-                                                        <div class="mb-3">
+                                                        <div class="mb-3 position-relative">
                                                             <label class="form-label fw-semibold">{nextMeetingAgendaLabel}<span class="text-danger">*</span></label>
-                                                            <textarea class="form-control" disabled={viewOnlyMode} onchange={handleAgendaChange}>{currentAgenda}</textarea>
+                                                            <template lwc:if={viewOnlyMode}>
+                                                                <template lwc:if={isEditingAgenda}>
+                                                                    <textarea class="form-control" data-field="nextAgenda" 
+                                                                        onchange={handleAgendaChange} onblur={handleFieldBlur}>{currentAgenda}</textarea>
+                                                                </template>
+                                                                <template lwc:else>
+                                                                    <div class="form-control bg-light border border-2 border-dashed position-relative" 
+                                                                        data-field="nextAgenda" onclick={handleFieldClick} 
+                                                                        style="cursor: pointer; min-height: 38px;">
+                                                                        <span class={agendaDisplayClass}>{agendaDisplay}</span>
+                                                                        <i class="bi bi-pencil-square position-absolute text-muted" 
+                                                                            style="top: 8px; right: 8px; font-size: 14px;"></i>
+                                                                    </div>
+                                                                </template>
+                                                            </template>
+                                                            <template lwc:else>
+                                                                <textarea class="form-control" onchange={handleAgendaChange}>{currentAgenda}</textarea>
+                                                            </template>
                                                         </div>
                                                     </template>
 
                                                     <!-- New Next Steps widget when not Closed/Go Live -->
                                                     <template lwc:if={showNextAgendaField}>
-                                                        <div class="mb-3">
+                                                        <div class="mb-3 position-relative">
                                                             <label class="form-label fw-semibold">Next Meeting Agenda</label>
-                                                            <textarea class="form-control" disabled={viewOnlyMode} onchange={handleAgendaChange}>{currentAgenda}</textarea>
+                                                            <template lwc:if={viewOnlyMode}>
+                                                                <template lwc:if={isEditingAgenda}>
+                                                                    <textarea class="form-control" data-field="nextAgenda" 
+                                                                        onchange={handleAgendaChange} onblur={handleFieldBlur}>{currentAgenda}</textarea>
+                                                                </template>
+                                                                <template lwc:else>
+                                                                    <div class="form-control bg-light border border-2 border-dashed position-relative" 
+                                                                        data-field="nextAgenda" onclick={handleFieldClick} 
+                                                                        style="cursor: pointer; min-height: 38px;">
+                                                                        <span class={agendaDisplayClass}>{agendaDisplay}</span>
+                                                                        <i class="bi bi-pencil-square position-absolute text-muted" 
+                                                                            style="top: 8px; right: 8px; font-size: 14px;"></i>
+                                                                    </div>
+                                                                </template>
+                                                            </template>
+                                                            <template lwc:else>
+                                                                <textarea class="form-control" onchange={handleAgendaChange}>{currentAgenda}</textarea>
+                                                            </template>
                                                         </div>
                                                     </template>
                                                 </div>
                                             </div>
 
                                             <!-- Project Progress Sub-Card -->
-                                            <div class="card border-light-success mb-4">
+                                            <div class="card border-light-success mb-4 mt-4">
                                                 <div class="card-header bg-light-success">
                                                     <h5 class="card-title text-success fw-bold mb-0">
                                                         <i class="bi bi-arrow-right-circle me-2"></i>Project Progress
@@ -323,17 +447,51 @@
                                                 <div class="card-body">
                                                     <!-- In Development: Next Steps -->
                                                     <template lwc:if={showNextStepsField}>
-                                                        <div class="mb-3">
+                                                        <div class="mb-3 position-relative">
                                                             <label class="form-label fw-semibold">Next Steps</label>
-                                                            <textarea class="form-control" disabled={viewOnlyMode} onchange={handleNextStepsChange}>{newNextSteps}</textarea>
+                                                            <template lwc:if={viewOnlyMode}>
+                                                                <template lwc:if={isEditingNextSteps}>
+                                                                    <textarea class="form-control" data-field="nextSteps" 
+                                                                        onchange={handleNextStepsChange} onblur={handleFieldBlur}>{newNextSteps}</textarea>
+                                                                </template>
+                                                                <template lwc:else>
+                                                                    <div class="form-control bg-light border border-2 border-dashed position-relative" 
+                                                                        data-field="nextSteps" onclick={handleFieldClick} 
+                                                                        style="cursor: pointer; min-height: 38px;">
+                                                                        <span class={nextStepsDisplayClass}>{nextStepsDisplay}</span>
+                                                                        <i class="bi bi-pencil-square position-absolute text-muted" 
+                                                                            style="top: 8px; right: 8px; font-size: 14px;"></i>
+                                                                    </div>
+                                                                </template>
+                                                            </template>
+                                                            <template lwc:else>
+                                                                <textarea class="form-control" onchange={handleNextStepsChange}>{newNextSteps}</textarea>
+                                                            </template>
                                                         </div>
                                                     </template>
                                                     
                                                     <!-- Risk & Action field (required for In Development, optional for Closed) -->
                                                     <template lwc:if={showRiskAndActionField}>
-                                                        <div class="mb-3">
+                                                        <div class="mb-3 position-relative">
                                                             <label class="form-label fw-semibold">Risk & Action</label>
-                                                            <input type="text" class="form-control" value={currentRiskAndAction} onchange={handleRiskAndActionChange} disabled={viewOnlyMode}/>
+                                                            <template lwc:if={viewOnlyMode}>
+                                                                <template lwc:if={isEditingRiskAndAction}>
+                                                                    <input type="text" class="form-control" data-field="riskAndAction" 
+                                                                        value={currentRiskAndAction} onchange={handleRiskAndActionChange} onblur={handleFieldBlur}/>
+                                                                </template>
+                                                                <template lwc:else>
+                                                                    <div class="form-control bg-light border border-2 border-dashed position-relative" 
+                                                                        data-field="riskAndAction" onclick={handleFieldClick} 
+                                                                        style="cursor: pointer; min-height: 38px;">
+                                                                        <span class={riskActionDisplayClass}>{riskActionDisplay}</span>
+                                                                        <i class="bi bi-pencil-square position-absolute text-muted" 
+                                                                            style="top: 8px; right: 8px; font-size: 14px;"></i>
+                                                                    </div>
+                                                                </template>
+                                                            </template>
+                                                            <template lwc:else>
+                                                                <input type="text" class="form-control" value={currentRiskAndAction} onchange={handleRiskAndActionChange}/>
+                                                            </template>
                                                         </div>
                                                     </template>
                                                 </div>
@@ -341,7 +499,7 @@
 
                                             <!-- Reason Fields (outside of sub-cards since they're conditional and replace other fields) -->
                                             <template lwc:if={showReasonField}>
-                                                <div class="card border-light-warning mb-4">
+                                                <div class="card border-light-warning mb-4 mt-4">
                                                     <div class="card-header bg-light-warning">
                                                         <h5 class="card-title text-warning fw-bold mb-0">
                                                             <i class="bi bi-exclamation-triangle me-2"></i>Reason for No Follow-up
@@ -358,7 +516,7 @@
                                             
                                             <!-- Go Live specific reason when no support -->
                                             <template lwc:if={showGoLiveReasonField}>
-                                                <div class="card border-light-warning mb-4">
+                                                <div class="card border-light-warning mb-4 mt-4">
                                                     <div class="card-header bg-light-warning">
                                                         <h5 class="card-title text-warning fw-bold mb-0">
                                                             <i class="bi bi-exclamation-triangle me-2"></i>Reason for No Support
@@ -375,7 +533,7 @@
                                             
                                             <!-- Closed status specific reason when no follow-up required -->
                                             <template lwc:if={showClosedReasonField}>
-                                                <div class="card border-light-warning mb-4">
+                                                <div class="card border-light-warning mb-4 mt-4">
                                                     <div class="card-header bg-light-warning">
                                                         <h5 class="card-title text-warning fw-bold mb-0">
                                                             <i class="bi bi-exclamation-triangle me-2"></i>Reason for No Follow-up
@@ -397,8 +555,24 @@
                                                         onclick={handlePrevious}>Previous</button>
                                                 </div>
                                                 <div lwc:if={viewOnlyMode}>
-                                                    <button class="btn btn-primary px-4 fw-semibold"
-                                                        onclick={handleSkip}>Next</button>
+                                                    <template lwc:if={showSaveButton}>
+                                                        <button class="btn btn-success px-4 fw-semibold me-2"
+                                                            onclick={handleInlineSave} disabled={isSavingField}>
+                                                            <template lwc:if={isSavingField}>
+                                                                <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                                                Saving...
+                                                            </template>
+                                                            <template lwc:else>
+                                                                Save
+                                                            </template>
+                                                        </button>
+                                                        <button class="btn btn-outline-secondary px-4 fw-semibold"
+                                                            onclick={handleInlineCancel} disabled={isSavingField}>Cancel</button>
+                                                    </template>
+                                                    <template lwc:else>
+                                                        <button class="btn btn-primary px-4 fw-semibold"
+                                                            onclick={handleSkip}>Next</button>
+                                                    </template>
                                                 </div>
                                                 <div lwc:else>
                                                     <button class="btn btn-primary px-4 fw-semibold"
@@ -459,11 +633,61 @@
                         </section>
                     </template>
 
-                    <!-- Show neutral message when no tasks -->
+                    <!-- Enhanced no projects message for Review mode -->
                     <template lwc:if={noTasksError}>
-                        <div class="alert alert-info mt-5" role="alert">
-                            No Projects currently meet the selected criteria. Please refine your filters or check again later.
-                        </div>
+                        <template lwc:if={viewOnlyMode}>
+                            <!-- Enhanced Review Mode Message -->
+                            <div class="row gx-5 gx-xl-10 mt-5">
+                                <div class="col-12">
+                                    <div class="card border-0 bg-light-warning">
+                                        <div class="card-body p-4 text-center">
+                                            <div class="mb-4">
+                                                <i class="bi bi-search text-warning" style="font-size: 3rem;"></i>
+                                            </div>
+                                            <h4 class="text-warning fw-bold mb-3">{noProjectsMessage.title}</h4>
+                                            <p class="text-muted mb-4 fs-6">{noProjectsMessage.message}</p>
+                                            
+                                            <!-- Filter Suggestions -->
+                                            <template lwc:if={noProjectsMessage.suggestions}>
+                                                <template lwc:if={noProjectsMessage.suggestions.length}>
+                                                    <div class="mb-3">
+                                                        <p class="fw-semibold mb-2">Try these filters:</p>
+                                                        <div class="d-flex justify-content-center gap-2 flex-wrap">
+                                                            <template for:each={noProjectsMessage.suggestions} for:item="suggestion">
+                                                                <button key={suggestion} 
+                                                                    class="btn btn-outline-warning btn-sm" 
+                                                                    data-filter={suggestion}
+                                                                    onclick={handleSuggestionClick}>
+                                                                    {suggestion}
+                                                                </button>
+                                                            </template>
+                                                        </div>
+                                                    </div>
+                                                </template>
+                                            </template>
+                                            
+                                            <!-- Additional Help -->
+                                            <div class="mt-4 pt-3 border-top border-warning">
+                                                <p class="text-muted fs-7 mb-2">
+                                                    <i class="bi bi-lightbulb me-1"></i>
+                                                    <strong>Tip:</strong> Use the filter dropdown above to explore different project views
+                                                </p>
+                                                <p class="text-muted fs-7 mb-0">
+                                                    <i class="bi bi-arrow-clockwise me-1"></i>
+                                                    You can also try changing the Project Manager to see other projects
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                        <template lwc:else>
+                            <!-- Standard Update Mode Message -->
+                            <div class="alert alert-info mt-5" role="alert">
+                                No Projects currently meet the selected criteria. Please refine your filters or check again later.
+                            </div>
+                        </template>
                     </template>
 
                     <template lwc:if={managerSelected}>
@@ -494,7 +718,7 @@
                         <p>How would you like to proceed with the selected Project Manager?</p>
                     </div>
                     <div class="modal-footer">
-                        <button class="btn btn-outline-primary" onclick={handleViewMode}>View</button>
+                        <button class="btn btn-outline-primary" onclick={handleViewMode}>Review Projects</button>
                         <button class="btn btn-primary" onclick={handleUpdateMode}>Update</button>
                     </div>
                 </div>
@@ -552,7 +776,7 @@
                         {modalTitle}
                     </h2>
                 </header>
-                <div class="slds-modal__content slds-p-around_medium" style="height: 70vh;">
+                <div class="slds-modal__content slds-var-p-around_medium" style="height: 70vh;">
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <div class="d-flex align-items-center gap-2">
                             <span class="badge bg-info">Document Preview</span>
@@ -594,7 +818,7 @@
                 <footer class="slds-modal__footer">
                     <lightning-button label="Close" onclick={closeDocumentModal}></lightning-button>
                     <lightning-button variant="brand" label="Open in New Tab" 
-                                    onclick={openInNewTab} class="slds-m-left_x-small"></lightning-button>
+                                    onclick={openInNewTab} class="slds-var-m-left_x-small"></lightning-button>
                 </footer>
             </div>
         </section>

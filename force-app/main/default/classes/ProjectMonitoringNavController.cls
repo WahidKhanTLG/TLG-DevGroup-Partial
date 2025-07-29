@@ -37,6 +37,58 @@ public without sharing class ProjectMonitoringNavController {
         Boolean isInDevelopment = statusFilter == 'In Development';
         Boolean isGoLive = statusFilter == 'Go Live';
         Boolean isClosed = statusFilter == 'Closed';
+        
+        // --- Handle new Review mode date filters ---
+        Boolean isUpdatedToday = statusFilter == 'Updated Today';
+        Boolean isLast3Days = statusFilter == 'Last 3 Days';
+        Boolean isLastWeek = statusFilter == 'Last Week';
+
+        // --- Handle Updated Today filter (Review mode) ---
+        if (isUpdatedToday) {
+            List<Project_Assistant_Task__c> updatedTodayTasks = [
+                SELECT Opportunity__c FROM Project_Assistant_Task__c
+                WHERE Opportunity__r.Portal_User_Owner__c = :portalUserId
+                AND Opportunity__r.StageName = 'Closed Won'
+                AND (CreatedDate = :Date.today() OR LastModifiedDate = :Date.today())
+                ORDER BY LastModifiedDate DESC
+            ];
+            for(Project_Assistant_Task__c task : updatedTodayTasks) {
+                projectIdSet.add(task.Opportunity__c);
+            }
+            return new List<Id>(projectIdSet);
+        }
+        
+        // --- Handle Last 3 Days filter (Review mode) ---
+        if (isLast3Days) {
+            Date threeDaysAgo = Date.today().addDays(-3);
+            List<Project_Assistant_Task__c> recentTasks = [
+                SELECT Opportunity__c FROM Project_Assistant_Task__c
+                WHERE Opportunity__r.Portal_User_Owner__c = :portalUserId
+                AND Opportunity__r.StageName = 'Closed Won'
+                AND (CreatedDate >= :threeDaysAgo OR LastModifiedDate >= :threeDaysAgo)
+                ORDER BY LastModifiedDate DESC
+            ];
+            for(Project_Assistant_Task__c task : recentTasks) {
+                projectIdSet.add(task.Opportunity__c);
+            }
+            return new List<Id>(projectIdSet);
+        }
+        
+        // --- Handle Last Week filter (Review mode) ---
+        if (isLastWeek) {
+            Date weekAgo = Date.today().addDays(-7);
+            List<Project_Assistant_Task__c> weeklyTasks = [
+                SELECT Opportunity__c FROM Project_Assistant_Task__c
+                WHERE Opportunity__r.Portal_User_Owner__c = :portalUserId
+                AND Opportunity__r.StageName = 'Closed Won'
+                AND (CreatedDate >= :weekAgo OR LastModifiedDate >= :weekAgo)
+                ORDER BY LastModifiedDate DESC
+            ];
+            for(Project_Assistant_Task__c task : weeklyTasks) {
+                projectIdSet.add(task.Opportunity__c);
+            }
+            return new List<Id>(projectIdSet);
+        }
 
         // --- Handle Due Today filter ---
         if (isDueToday) {
@@ -286,6 +338,106 @@ public without sharing class ProjectMonitoringNavController {
             return [SELECT Id, Name, Designation__c FROM Portal_Users__c WHERE Is_Project_Manager__c = TRUE AND Is_Active__c = TRUE];
         } catch (Exception e) {
             throw new AuraHandledException(e.getMessage());
+        }
+    }
+
+    /**
+     * Get project managers with their project statistics
+     * Returns project count and completion status for each manager
+     */
+    @AuraEnabled(cacheable=true)
+    public static List<ProjectManagerStats> getProjectManagersWithStats(){
+        try {
+            List<Portal_Users__c> managers = [
+                SELECT Id, Name, Designation__c 
+                FROM Portal_Users__c 
+                WHERE Is_Project_Manager__c = TRUE AND Is_Active__c = TRUE
+                ORDER BY Name
+            ];
+            
+            List<ProjectManagerStats> statsList = new List<ProjectManagerStats>();
+            Date today = Date.today();
+            
+            for (Portal_Users__c manager : managers) {
+                // Count total projects for this manager
+                Integer totalProjects = [
+                    SELECT COUNT() 
+                    FROM Opportunity 
+                    WHERE Portal_User_Owner__c = :manager.Id 
+                    AND StageName = 'Closed Won'
+                ];
+                
+                // Count projects with updates today
+                Integer updatedToday = 0;
+                if (totalProjects > 0) {
+                    List<AggregateResult> todayUpdates = [
+                        SELECT COUNT_DISTINCT(Opportunity__c) projectCount
+                        FROM Project_Assistant_Task__c 
+                        WHERE Opportunity__r.Portal_User_Owner__c = :manager.Id
+                        AND Opportunity__r.StageName = 'Closed Won'
+                        AND (CreatedDate = :today OR LastModifiedDate = :today)
+                    ];
+                    
+                    if (!todayUpdates.isEmpty() && todayUpdates[0].get('projectCount') != null) {
+                        updatedToday = (Integer)todayUpdates[0].get('projectCount');
+                    }
+                }
+                
+                statsList.add(new ProjectManagerStats(
+                    manager.Id, 
+                    manager.Name, 
+                    manager.Designation__c,
+                    totalProjects,
+                    updatedToday
+                ));
+            }
+            
+            return statsList;
+        } catch (Exception e) {
+            throw new AuraHandledException('Failed to load project manager statistics: ' + e.getMessage());
+        }
+    }
+
+    /**
+     * Wrapper class for Project Manager statistics
+     */
+    public class ProjectManagerStats {
+        @AuraEnabled public String Id;
+        @AuraEnabled public String Name;
+        @AuraEnabled public String Designation;
+        @AuraEnabled public Integer totalProjects;
+        @AuraEnabled public Integer updatedToday;
+        @AuraEnabled public Boolean allUpdated;
+        @AuraEnabled public String statusIcon;
+        @AuraEnabled public String statusColor;
+        @AuraEnabled public String statusText;
+        
+        public ProjectManagerStats(String id, String name, String designation, Integer total, Integer updated) {
+            this.Id = id;
+            this.Name = name;
+            this.Designation = designation;
+            this.totalProjects = total != null ? total : 0;
+            this.updatedToday = updated != null ? updated : 0;
+            this.allUpdated = (this.totalProjects > 0 && this.totalProjects == this.updatedToday);
+            
+            // Set status indicators
+            if (this.totalProjects == 0) {
+                this.statusIcon = 'bi-dash-circle';
+                this.statusColor = 'text-muted';
+                this.statusText = 'No Projects';
+            } else if (this.allUpdated) {
+                this.statusIcon = 'bi-check-circle-fill';
+                this.statusColor = 'text-success';
+                this.statusText = 'All Updated';
+            } else if (this.updatedToday > 0) {
+                this.statusIcon = 'bi-clock-history';
+                this.statusColor = 'text-warning';
+                this.statusText = 'Partially Updated';
+            } else {
+                this.statusIcon = 'bi-exclamation-circle';
+                this.statusColor = 'text-danger';
+                this.statusText = 'Needs Updates';
+            }
         }
     }
 

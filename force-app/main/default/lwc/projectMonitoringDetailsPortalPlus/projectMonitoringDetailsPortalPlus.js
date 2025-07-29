@@ -7,6 +7,7 @@ import insertProjectAssistantTasks from '@salesforce/apex/ProjectMonitoringNavCo
 import getProjectIds from '@salesforce/apex/ProjectMonitoringNavController.getProjectIds';
 import getPicklistValues from '@salesforce/apex/PortalPlusUtils.getPicklistValues';
 import getProjectManagers from '@salesforce/apex/ProjectMonitoringNavController.getProjectManagers';
+import getProjectManagersWithStats from '@salesforce/apex/ProjectMonitoringNavController.getProjectManagersWithStats';
 import upsertProjectAssistantTask from '@salesforce/apex/ProjectMonitoringNavController.upsertProjectAssistantTask';
 import updatePreviousTaskFulfilled from '@salesforce/apex/ProjectMonitoringNavController.updatePreviousTaskFulfilled';
 
@@ -51,6 +52,59 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
     @track embedUrl = '';
 
     @track viewOnlyMode = false;
+    @track editingField = null; // Track which field is being edited
+    @track showSaveButton = false; // Show save button when editing
+    @track isSavingField = false; // Track saving state
+
+    // Handle filter suggestion clicks
+    handleSuggestionClick(event) {
+        const suggestedFilter = event.target.dataset.filter;
+        if (suggestedFilter && suggestedFilter !== this.selectedStatusFilter) {
+            // Update the filter and reload data
+            this.selectedStatusFilter = suggestedFilter;
+            
+            // Reload projects with the new filter
+            this.isLoading = true;
+            this.resetTaskState();
+            this.noTasksError = false;
+            
+            const mode = this.viewOnlyMode ? 'view' : 'update';
+            
+            getProjectIds({ 
+                portalUserId: this.portalUserId, 
+                mode: mode, 
+                statusFilter: this.selectedStatusFilter 
+            })
+            .then(projectIds => {
+                if (!projectIds || projectIds.length === 0) {
+                    this.noTasksError = true;
+                    return;
+                }
+                
+                this.allTaskIds = projectIds;
+                this.currentIndex = 0;
+                this.currentRecordId = projectIds[0];
+                this.resetAllInputs();
+                this.fetchTaskDetails(this.currentRecordId);
+                
+                // Show success message
+                const event = new ShowToastEvent({
+                    title: 'Filter Applied',
+                    message: `Found ${projectIds.length} project${projectIds.length !== 1 ? 's' : ''} with "${suggestedFilter}" filter.`,
+                    variant: 'success',
+                    mode: 'dismissable'
+                });
+                this.dispatchEvent(event);
+            })
+            .catch(error => {
+                this.showError(`Failed to load projects with "${suggestedFilter}" filter. Please try again.`);
+                console.error('Suggestion filter error:', error);
+            })
+            .finally(() => {
+                this.isLoading = false;
+            });
+        }
+    }
 
     // Show support-related fields only when follow-up required
     get showSupportFields() {
@@ -188,15 +242,65 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
         }
     }
 
-    @wire(getProjectManagers)
+    @wire(getProjectManagersWithStats)
     handleProjectManagers({ data, error }) {
         if (data) {
-            this.projectManagers = data.map(manager => ({
-                label: manager.Name,
-                value: manager.Id
-            }));
+            this.projectManagers = data.map(manager => {
+                const progressPercentage = manager.totalProjects > 0 ? 
+                    Math.round((manager.updatedToday / manager.totalProjects) * 100) : 0;
+                
+                let statusBadgeClass = 'badge-light-secondary';
+                if (manager.allUpdated && manager.totalProjects > 0) {
+                    statusBadgeClass = 'badge-light-success';
+                } else if (manager.updatedToday > 0) {
+                    statusBadgeClass = 'badge-light-warning';
+                } else if (manager.totalProjects > 0) {
+                    statusBadgeClass = 'badge-light-danger';
+                }
+
+                const needsAttention = manager.totalProjects > 0 && !manager.allUpdated;
+
+                return {
+                    label: manager.Name,
+                    value: manager.Id,
+                    totalProjects: manager.totalProjects,
+                    updatedToday: manager.updatedToday,
+                    allUpdated: manager.allUpdated,
+                    statusIcon: manager.statusIcon,
+                    statusColor: manager.statusColor,
+                    statusText: manager.statusText,
+                    designation: manager.Designation,
+                    progressPercentage: progressPercentage,
+                    progressWidth: `width: ${progressPercentage}%`,
+                    statusBadgeClass: statusBadgeClass,
+                    needsAttention: needsAttention
+                };
+            });
+            
+            // Set progress bar widths after data is loaded
+            this.setProgressBarWidths();
         } else if (error) {
             this.showError('Failed to load project managers.');
+        }
+    }
+
+    // Method to set progress bar widths dynamically
+    setProgressBarWidths() {
+        // Use setTimeout to ensure DOM is rendered
+        setTimeout(() => {
+            const progressBars = this.template.querySelectorAll('.progress-bar');
+            progressBars.forEach((bar, index) => {
+                if (this.projectManagers && this.projectManagers[index]) {
+                    bar.style.width = `${this.projectManagers[index].progressPercentage}%`;
+                }
+            });
+        }, 100);
+    }
+
+    // Lifecycle method to update progress bars after render
+    renderedCallback() {
+        if (this.projectManagers && this.projectManagers.length > 0) {
+            this.setProgressBarWidths();
         }
     }
 
@@ -220,6 +324,14 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
         }
         const color = this.currentTask.isOpportunityPriorityRecord ? '#dc3545' : '#198754';
         return `border-left: 6px solid ${color};`;
+    }
+
+    get priorityCardClass() {
+        if (!this.currentTask) {
+            return 'card-header bg-light-primary'; // Default when no task is loaded
+        }
+        const priorityClass = this.currentTask.isOpportunityPriorityRecord ? 'border-danger' : 'border-success';
+        return `card-header bg-light-primary ${priorityClass} border-start border-5`;
     }
 
     get resourceLookupFilter() {
@@ -279,6 +391,9 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
 
         if (this.viewOnlyMode) {
             const options = [
+                { label: 'Updated Today', value: 'Updated Today' },
+                { label: 'Last 3 Days', value: 'Last 3 Days' },
+                { label: 'Last Week', value: 'Last Week' },
                 { label: 'All', value: 'All' },
                 { label: 'In Development', value: 'In Development' },
                 { label: 'Go Live', value: 'Go Live' },
@@ -300,6 +415,151 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
                 ...opt,
                 selected: opt.value === this.selectedStatusFilter
             }));
+        }
+    }
+
+    // Get filter display information for the status indicator card
+    get filterDisplayInfo() {
+        const isReviewMode = this.viewOnlyMode;
+        
+        switch(this.selectedStatusFilter) {
+            case 'Updated Today':
+                return {
+                    icon: 'bi-calendar-check',
+                    color: 'success',
+                    description: 'Projects with updates made today'
+                };
+            case 'Last 3 Days':
+                return {
+                    icon: 'bi-calendar-range',
+                    color: 'primary',
+                    description: 'Projects updated in the last 3 days'
+                };
+            case 'Last Week':
+                return {
+                    icon: 'bi-calendar-week',
+                    color: 'info',
+                    description: 'Projects updated in the last 7 days'
+                };
+            case 'Due Today':
+                return {
+                    icon: 'bi-clock-history',
+                    color: 'warning',
+                    description: 'Tasks that are due today and need attention'
+                };
+            case 'Open':
+                return {
+                    icon: 'bi-play-circle',
+                    color: 'primary',
+                    description: 'Projects ready to start monitoring'
+                };
+            case 'In Development':
+                return {
+                    icon: 'bi-gear-wide-connected',
+                    color: 'primary',
+                    description: isReviewMode ? 'All In Development projects' : 'Projects currently in development phase'
+                };
+            case 'Go Live':
+                return {
+                    icon: 'bi-rocket-takeoff',
+                    color: 'success',
+                    description: isReviewMode ? 'All Go Live projects' : 'Projects in Go Live phase'
+                };
+            case 'Closed':
+                return {
+                    icon: 'bi-check-circle',
+                    color: 'secondary',
+                    description: isReviewMode ? 'All Closed projects' : 'Completed projects'
+                };
+            case 'All':
+                return {
+                    icon: 'bi-list-ul',
+                    color: 'dark',
+                    description: isReviewMode ? 'All projects regardless of status' : 'All available projects'
+                };
+            default:
+                return {
+                    icon: 'bi-funnel',
+                    color: 'muted',
+                    description: 'Filter results'
+                };
+        }
+    }
+
+    // Get project count display text
+    get projectCountDisplay() {
+        const count = this.allTaskIds ? this.allTaskIds.length : 0;
+        const isReviewMode = this.viewOnlyMode;
+        
+        if (count === 0) {
+            return 'No Projects';
+        } else if (count === 1) {
+            return isReviewMode ? '1 Project' : '1 Task';
+        } else {
+            return isReviewMode ? `${count} Projects` : `${count} Tasks`;
+        }
+    }
+
+    // Enhanced no projects message with helpful guidance
+    get noProjectsMessage() {
+        const isReviewMode = this.viewOnlyMode;
+        const filter = this.selectedStatusFilter;
+        
+        if (!isReviewMode) {
+            // Update mode - standard message
+            return 'No Projects currently meet the selected criteria. Please refine your filters or check again later.';
+        }
+        
+        // Review mode - enhanced messages with suggestions
+        switch(filter) {
+            case 'Updated Today':
+                return {
+                    title: 'No Projects Updated Today',
+                    message: 'No projects have been updated today. Try "Last 3 Days" or "Last Week" to review recent project activity.',
+                    suggestions: ['Last 3 Days', 'Last Week', 'All']
+                };
+            case 'Last 3 Days':
+                return {
+                    title: 'No Recent Updates',
+                    message: 'No projects have been updated in the last 3 days. Try "Last Week" or "All" to review older project activity.',
+                    suggestions: ['Last Week', 'All']
+                };
+            case 'Last Week':
+                return {
+                    title: 'No Updates This Week',
+                    message: 'No projects have been updated in the last week. Try "All" to see all projects regardless of update date.',
+                    suggestions: ['All']
+                };
+            case 'In Development':
+                return {
+                    title: 'No In Development Projects',
+                    message: 'No In Development projects found. Try "All" to see projects in other phases.',
+                    suggestions: ['All', 'Go Live', 'Closed']
+                };
+            case 'Go Live':
+                return {
+                    title: 'No Go Live Projects',
+                    message: 'No Go Live projects found. Try "All" to see projects in other phases.',
+                    suggestions: ['All', 'In Development', 'Closed']
+                };
+            case 'Closed':
+                return {
+                    title: 'No Closed Projects',
+                    message: 'No Closed projects found. Try "All" to see projects in other phases.',
+                    suggestions: ['All', 'In Development', 'Go Live']
+                };
+            case 'All':
+                return {
+                    title: 'No Projects Available',
+                    message: 'No projects are available for review with this Project Manager.',
+                    suggestions: []
+                };
+            default:
+                return {
+                    title: 'No Projects Found',
+                    message: 'No projects match the current filter criteria.',
+                    suggestions: ['All']
+                };
         }
     }
 
@@ -955,13 +1215,38 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
             this.showError('Please select a Project Manager');
             return;
         }
+        // Show mode selection modal instead of immediately loading
+        this.showModeSelectModal = true;
+    }
+
+    // Mode Selection Modal Handlers
+    closeModeSelectModal() {
+        this.showModeSelectModal = false;
+        // Reset to allow re-selection
+        this.portalUserId = '';
+    }
+
+    handleViewMode() {
+        this.viewOnlyMode = true;
+        this.showModeSelectModal = false;
+        // Set a more helpful default filter for Review mode
+        this.selectedStatusFilter = 'Updated Today';
+        this.loadProjectsForSelectedManager();
+    }
+
+    handleUpdateMode() {
+        this.viewOnlyMode = false;
+        this.showModeSelectModal = false;
+        this.loadProjectsForSelectedManager();
+    }
+
+    loadProjectsForSelectedManager() {
         // Hide selection UI
         this.managerSelected = true;
         this.isSelectManager = false;
-        // Load first project for selected manager immediately with current filter
         this.isLoading = true;
         
-        // Determine mode - default to 'update' unless in view mode
+        // Determine mode
         const mode = this.viewOnlyMode ? 'view' : 'update';
         
         getProjectIds({ 
@@ -988,159 +1273,184 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
         });
     }
 
-    // Get filter display information with icons and colors
-    get filterDisplayInfo() {
-        const filterMap = {
-            'Due Today': { 
-                icon: 'bi-clock', 
-                color: 'danger', 
-                description: 'Tasks due today' 
-            },
-            'Open': { 
-                icon: 'bi-play-circle', 
-                color: 'warning', 
-                description: 'Projects without tasks' 
-            },
-            'In Development': { 
-                icon: 'bi-hammer', 
-                color: 'primary', 
-                description: 'Active development projects' 
-            },
-            'Go Live': { 
-                icon: 'bi-rocket-takeoff', 
-                color: 'success', 
-                description: 'Projects going live' 
-            },
-            'Closed': { 
-                icon: 'bi-check-circle', 
-                color: 'secondary', 
-                description: 'Completed projects' 
-            },
-            'All': { 
-                icon: 'bi-list', 
-                color: 'info', 
-                description: 'All projects' 
+    // Inline Editing Methods
+    handleFieldClick(event) {
+        if (!this.viewOnlyMode) return; // Only in view mode
+        
+        const fieldName = event.currentTarget.dataset.field;
+        this.editingField = fieldName;
+        this.showSaveButton = true;
+        
+        // Focus the field after a short delay to ensure it's rendered
+        setTimeout(() => {
+            const field = this.template.querySelector(`[data-field="${fieldName}"]`);
+            if (field && field.focus) {
+                field.focus();
             }
-        };
+        }, 100);
+    }
+
+    handleFieldBlur(event) {
+        // Don't immediately exit edit mode - wait for save or explicit cancel
+    }
+
+    handleInlineSave() {
+        if (!this.editingField) return;
+
+        // Save the current field data
+        this.isSavingField = true;
         
-        return filterMap[this.selectedStatusFilter] || filterMap['All'];
-    }
-
-    // Get current project count display
-    get projectCountDisplay() {
-        if (!this.allTaskIds || this.allTaskIds.length === 0) {
-            return 'No projects';
-        }
-        const current = this.currentIndex + 1;
-        const total = this.allTaskIds.length;
-        return `${current} of ${total} project${total !== 1 ? 's' : ''}`;
-    }
-
-    // Document type detection getters
-    get isExcelOrSheets() {
-        if (!this.currentDocumentUrl) return false;
-        const url = this.currentDocumentUrl.toLowerCase();
-        return url.includes('docs.google.com/spreadsheets') || 
-               url.includes('onedrive.live.com') ||
-               url.includes('sharepoint.com') ||
-               url.includes('.xlsx') || 
-               url.includes('.xls');
-    }
-
-    get isPdf() {
-        if (!this.currentDocumentUrl) return false;
-        const url = this.currentDocumentUrl.toLowerCase();
-        return url.includes('.pdf') || url.includes('pdf');
-    }
-
-    get isOtherDocument() {
-        return !this.isExcelOrSheets && !this.isPdf;
-    }
-
-    get documentTypeMessage() {
-        if (this.isExcelOrSheets) {
-            return 'Excel/Sheets document - Interactive preview available';
-        } else if (this.isPdf) {
-            return 'PDF document - Preview available';
-        } else {
-            return 'Click "Open in New Tab" to view this document';
-        }
-    }
-
-    // Document Modal Methods
-    openClientOnboardingModal() {
-        if (this.previousTask && this.previousTask.clientOnboardingSheet) {
-            this.currentDocumentUrl = this.previousTask.clientOnboardingSheet;
-            this.modalTitle = 'Client Onboarding Sheet';
-            this.modalDocumentIcon = 'bi bi-file-earmark-excel text-success me-2';
-            this.embedUrl = this.generateEmbedUrl(this.currentDocumentUrl);
-            this.showDocumentModal = true;
-        }
-    }
-
-    openProjectTrackerModal() {
-        if (this.previousTask && this.previousTask.projectTracker) {
-            this.currentDocumentUrl = this.previousTask.projectTracker;
-            this.modalTitle = 'Project Tracker';
-            this.modalDocumentIcon = 'bi bi-file-earmark-spreadsheet text-info me-2';
-            this.embedUrl = this.generateEmbedUrl(this.currentDocumentUrl);
-            this.showDocumentModal = true;
-        }
-    }
-
-    generateEmbedUrl(url) {
-        if (!url) return '';
+        const taskToSave = this.buildTaskForSaving();
         
-        // Google Sheets
-        if (url.includes('docs.google.com/spreadsheets')) {
-            // Convert Google Sheets sharing URL to embed URL
-            const fileId = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-            if (fileId) {
-                return `https://docs.google.com/spreadsheets/d/${fileId[1]}/edit?usp=sharing&widget=true&headers=false`;
-            }
+        upsertProjectAssistantTask({ task: taskToSave })
+        .then(() => {
+            this.showSuccess('Field updated successfully!');
+            this.editingField = null;
+            this.showSaveButton = false;
+            // Refresh the current task to show updated data
+            this.fetchTaskDetails(this.currentRecordId);
+        })
+        .catch(error => {
+            this.showError('Failed to update field: ' + (error.body?.message || error.message));
+            console.error('Inline save error:', error);
+        })
+        .finally(() => {
+            this.isSavingField = false;
+        });
+    }
+
+    handleInlineCancel() {
+        this.editingField = null;
+        this.showSaveButton = false;
+        // Refresh to restore original values
+        this.fetchTaskDetails(this.currentRecordId);
+    }
+
+    // Helper to get display value for view mode (with fallback for empty values)
+    getDisplayValue(fieldName, value) {
+        if (!value || value.trim() === '') {
+            return 'Click to add...';
+        }
+        return value;
+    }
+
+    // Enhanced getters for display values
+    get nextStepsDisplay() {
+        return this.getDisplayValue('nextSteps', this.newNextSteps);
+    }
+
+    get agendaDisplay() {
+        return this.getDisplayValue('agenda', this.currentAgenda);
+    }
+
+    get riskActionDisplay() {
+        return this.getDisplayValue('riskAction', this.currentRiskAndAction);
+    }
+
+    get meetingScheduledDisplay() {
+        return this.getDisplayValue('meetingScheduled', this.currentNextMeetingScheduled);
+    }
+
+    // CSS class helpers for empty values
+    get nextStepsDisplayClass() {
+        return this.nextStepsDisplay === 'Click to add...' ? 'text-muted fst-italic' : '';
+    }
+
+    get agendaDisplayClass() {
+        return this.agendaDisplay === 'Click to add...' ? 'text-muted fst-italic' : '';
+    }
+
+    get riskActionDisplayClass() {
+        return this.riskActionDisplay === 'Click to add...' ? 'text-muted fst-italic' : '';
+    }
+
+    get meetingScheduledDisplayClass() {
+        return this.meetingScheduledDisplay === 'Click to add...' ? 'text-muted fst-italic' : '';
+    }
+
+    getCurrentFieldValue() {
+        switch(this.editingField) {
+            case 'nextSteps': return this.newNextSteps;
+            case 'nextAgenda': return this.currentAgenda;
+            case 'riskAndAction': return this.currentRiskAndAction;
+            case 'nextMeetingScheduled': return this.currentNextMeetingScheduled;
+            case 'nextMeetingDate': return this.currentNextMeetingDate;
+            case 'supportEndDate': return this.currentSupportEndDate;
+            case 'supportPlan': return this.currentSupportPlan;
+            case 'reason': return this.currentReason;
+            default: return '';
+        }
+    }
+
+    // Check if a field is currently being edited
+    isFieldEditing(fieldName) {
+        return this.viewOnlyMode && this.editingField === fieldName;
+    }
+
+    // Helper method to build the task object for saving
+    buildTaskForSaving() {
+        const task = { Id: this.currentTask.id };
+        
+        switch(this.editingField) {
+            case 'nextSteps':
+                task.Next_Steps__c = this.newNextSteps;
+                break;
+            case 'nextAgenda':
+                task.Next_Agenda__c = this.currentAgenda;
+                break;
+            case 'riskAndAction':
+                task.Risk_Action__c = this.currentRiskAndAction;
+                break;
+            case 'nextMeetingScheduled':
+                task.Next_Meeting_Scheduled__c = this.currentNextMeetingScheduled;
+                break;
+            case 'nextMeetingDate':
+                task.Next_Meeting_Date__c = this.currentNextMeetingDate;
+                break;
+            case 'supportEndDate':
+                task.Support_End_Date__c = this.currentSupportEndDate;
+                break;
+            case 'supportPlan':
+                task.Support_Plan__c = this.currentSupportPlan;
+                break;
+            case 'reason':
+                task.Reason__c = this.currentReason;
+                break;
         }
         
-        // OneDrive/SharePoint Excel files
-        if (url.includes('onedrive.live.com') || url.includes('sharepoint.com')) {
-            // For OneDrive/SharePoint, try to modify URL for embedding
-            if (url.includes('?')) {
-                return url + '&action=embedview';
-            } else {
-                return url + '?action=embedview';
-            }
-        }
-        
-        // For other cases, return original URL
-        return url;
+        return task;
     }
 
-    closeDocumentModal() {
-        this.showDocumentModal = false;
-        this.currentDocumentUrl = '';
-        this.modalTitle = '';
-        this.modalDocumentIcon = '';
-        this.embedUrl = '';
+    // Getters for inline editing states
+    get isEditingNextSteps() {
+        return this.isFieldEditing('nextSteps');
     }
 
-    openInNewTab() {
-        if (this.currentDocumentUrl) {
-            window.open(this.currentDocumentUrl, '_blank');
-        }
+    get isEditingAgenda() {
+        return this.isFieldEditing('nextAgenda');
     }
 
-    // Check if Next Meeting Date is in the future (greater than today)
-    get isNextMeetingDateInFuture() {
-        if (!this.currentNextMeetingDate) return false;
-        
-        const selectedDate = new Date(this.currentNextMeetingDate);
-        const todayDate = new Date(); 
-        todayDate.setHours(0, 0, 0, 0);
-        
-        return selectedDate > todayDate;
+    get isEditingRiskAndAction() {
+        return this.isFieldEditing('riskAndAction');
     }
 
-    // Check if meeting fields should be auto-populated or blank
-    get shouldShowMeetingFields() {
-        return this.isNextMeetingDateInFuture;
+    get isEditingMeetingScheduled() {
+        return this.isFieldEditing('nextMeetingScheduled');
+    }
+
+    get isEditingMeetingDate() {
+        return this.isFieldEditing('nextMeetingDate');
+    }
+
+    get isEditingSupportEndDate() {
+        return this.isFieldEditing('supportEndDate');
+    }
+
+    get isEditingSupportPlan() {
+        return this.isFieldEditing('supportPlan');
+    }
+
+    get isEditingReason() {
+        return this.isFieldEditing('reason');
     }
 }
