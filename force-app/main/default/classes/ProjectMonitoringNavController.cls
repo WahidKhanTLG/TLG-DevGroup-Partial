@@ -1,8 +1,28 @@
 public without sharing class ProjectMonitoringNavController {
+    
+    // Constants for better maintainability
+    private static final String CLOSED_WON_STAGE = 'Closed Won';
+    private static final String PROSPECT_STAGE = 'Prospect';
+    private static final String IN_DEVELOPMENT_STATUS = 'In Development';
+    private static final String GO_LIVE_STATUS = 'Go Live';
+    private static final String CLOSED_STATUS = 'Closed';
+    private static final Integer REPEATED_FIELDS_THRESHOLD = 2;
+    private static final Integer ENHANCED_REPEATED_FIELDS_THRESHOLD = 3;
 
     /**
      * Fetch task record Ids for a given Project Manager (portalUserId)
-     * Ordered by CreatedDate (oldest first)
+     * Enhanced with status-specific filter logic:
+     * - Due Today: Tasks due today for In Development projects
+     * - Open: Opportunities without any tasks yet
+     * - In Development: Opportunities with any Project Assistant Tasks
+     * - Go Live: All Go Live opportunities regardless of task status
+     * - Closed: All Closed opportunities regardless of task status
+     * - All: Comprehensive filter for update mode
+     * 
+     * @param portalUserId ID of the Project Manager
+     * @param mode 'view' or 'update' mode
+     * @param statusFilter Filter criteria (Due Today, Open, In Development, Go Live, Closed, All)
+     * @return List of Opportunity IDs matching the filter criteria
      */
     @AuraEnabled(cacheable=true)
     public static List<Id> getProjectTaskIds(String portalUserId, String mode, String statusFilter) {
@@ -14,6 +34,9 @@ public without sharing class ProjectMonitoringNavController {
         Boolean isAll = String.isBlank(statusFilter) || statusFilter == 'All';
         Boolean isDueToday = statusFilter == 'Due Today';
         Boolean isOpen = statusFilter == 'Open';
+        Boolean isInDevelopment = statusFilter == 'In Development';
+        Boolean isGoLive = statusFilter == 'Go Live';
+        Boolean isClosed = statusFilter == 'Closed';
 
         // --- Handle Due Today filter ---
         if (isDueToday) {
@@ -40,6 +63,49 @@ public without sharing class ProjectMonitoringNavController {
                 AND Id NOT IN (SELECT Opportunity__c FROM Project_Assistant_Task__c WHERE Opportunity__c != null)
             ];
             for (Opportunity opp : openOpps) {
+                projectIdSet.add(opp.Id);
+            }
+            return new List<Id>(projectIdSet);
+        }
+        
+        // --- Handle In Development filter (show opportunities with any Project Assistant Tasks) ---
+        if (isInDevelopment) {
+            // Get all opportunities that have Project Assistant Task records (fulfilled or not fulfilled)
+            List<Project_Assistant_Task__c> inDevTasks = [
+                SELECT Opportunity__c FROM Project_Assistant_Task__c
+                WHERE Opportunity__r.Portal_User_Owner__c = :portalUserId
+                AND Opportunity__r.StageName = 'Closed Won'
+                AND Opportunity__r.Project_Status__c = 'In Development'
+            ];
+            for(Project_Assistant_Task__c task : inDevTasks) {
+                projectIdSet.add(task.Opportunity__c);
+            }
+            return new List<Id>(projectIdSet);
+        }
+        
+        // --- Handle Go Live filter (all Go Live opportunities) ---
+        if (isGoLive) {
+            List<Opportunity> goLiveOpps = [
+                SELECT Id FROM Opportunity
+                WHERE Portal_User_Owner__c = :portalUserId
+                AND StageName = 'Closed Won'
+                AND Project_Status__c = 'Go Live'
+            ];
+            for (Opportunity opp : goLiveOpps) {
+                projectIdSet.add(opp.Id);
+            }
+            return new List<Id>(projectIdSet);
+        }
+        
+        // --- Handle Closed filter (all Closed opportunities) ---
+        if (isClosed) {
+            List<Opportunity> closedOpps = [
+                SELECT Id FROM Opportunity
+                WHERE Portal_User_Owner__c = :portalUserId
+                AND StageName = 'Closed Won'
+                AND Project_Status__c = 'Closed'
+            ];
+            for (Opportunity opp : closedOpps) {
                 projectIdSet.add(opp.Id);
             }
             return new List<Id>(projectIdSet);
@@ -134,49 +200,8 @@ public without sharing class ProjectMonitoringNavController {
             throw new AuraHandledException('Opportunity Id is required.');
         }
 
-        List<Project_Assistant_Task__c> recentTasks = [
-            SELECT Id,
-                Due_Date__c,
-                Opportunity__c,
-                Previous_Day_Date__c,
-                Next_Meeting_Scheduled__c,
-                Last_Meeting_Date__c,
-                Next_Meeting_Date__c,
-                Previous_Step__c,
-                Next_Steps__c,
-                Risk_and_Action__c,
-                Previous_Agenda__c,
-                Next_Agenda__c,
-                Reason__c,
-                Opportunity__r.Name,
-                Opportunity__r.AccountId,
-                Opportunity__r.Account.Name,
-                Opportunity__r.IsPriorityRecord,
-                Opportunity__r.Project_Status__c,
-                Opportunity__r.Client_Onboarding_Sheet__c,
-                Opportunity__r.Project_Tracker__c
-            FROM Project_Assistant_Task__c
-            WHERE Opportunity__c = :opportunityId
-            ORDER BY Due_Date__c DESC
-            LIMIT 2
-        ];
-
-        Date today = Date.today();
-        Project_Assistant_Task__c todayTask;
-        Project_Assistant_Task__c previousTask;
-
-        for (Project_Assistant_Task__c t : recentTasks) {
-            if (t.Due_Date__c == today && todayTask == null) {
-                todayTask = t;
-            } else if (previousTask == null) {
-                previousTask = t;
-            }
-        }
-
-        ProjectAssistantTaskWrapper currentWrapper;
-        if (todayTask != null) {
-            currentWrapper = new ProjectAssistantTaskWrapper(todayTask);
-        } else {
+        try {
+            // Get the opportunity details first
             Opportunity opp = [
                 SELECT Id, Name, AccountId, Account.Name,
                     IsPriorityRecord, Project_Status__c,
@@ -185,12 +210,74 @@ public without sharing class ProjectMonitoringNavController {
                 WHERE Id = :opportunityId
                 LIMIT 1
             ];
-            currentWrapper = new ProjectAssistantTaskWrapper(opp);
+
+            List<Project_Assistant_Task__c> recentTasks = [
+                SELECT Id,
+                    Due_Date__c,
+                    Opportunity__c,
+                    Previous_Day_Date__c,
+                    CreatedDate,
+                    LastModifiedDate,
+                    Next_Meeting_Scheduled__c,
+                    Last_Meeting_Date__c,
+                    Next_Meeting_Date__c,
+                    Previous_Step__c,
+                    Next_Steps__c,
+                    Risk_and_Action__c,
+                    Previous_Agenda__c,
+                    Next_Agenda__c,
+                    Reason__c,
+                    Fulfilled__c,
+                    Opportunity__r.Name,
+                    Opportunity__r.AccountId,
+                    Opportunity__r.Account.Name,
+                    Opportunity__r.IsPriorityRecord,
+                    Opportunity__r.Project_Status__c,
+                    Opportunity__r.Client_Onboarding_Sheet__c,
+                    Opportunity__r.Project_Tracker__c
+                FROM Project_Assistant_Task__c
+                WHERE Opportunity__c = :opportunityId
+                ORDER BY Due_Date__c DESC, CreatedDate DESC
+                LIMIT 2
+            ];
+
+            Date today = Date.today();
+            Project_Assistant_Task__c currentTask = null;
+            Project_Assistant_Task__c previousTask = null;
+
+            // For In Development projects, show the last Project Assistant Task record regardless of fulfilled status
+            if (opp.Project_Status__c == IN_DEVELOPMENT_STATUS && !recentTasks.isEmpty()) {
+                currentTask = recentTasks[0]; // Most recent task
+                if (recentTasks.size() > 1) {
+                    previousTask = recentTasks[1]; // Second most recent task
+                }
+            } else {
+                // For other project statuses, use the existing logic (Due Date = today)
+                for (Project_Assistant_Task__c t : recentTasks) {
+                    if (t.Due_Date__c == today && currentTask == null) {
+                        currentTask = t;
+                    } else if (previousTask == null) {
+                        previousTask = t;
+                    }
+                }
+            }
+
+            ProjectAssistantTaskWrapper currentWrapper;
+            if (currentTask != null) {
+                currentWrapper = new ProjectAssistantTaskWrapper(currentTask);
+            } else {
+                // If no task found, create wrapper from opportunity
+                currentWrapper = new ProjectAssistantTaskWrapper(opp);
+            }
+
+            ProjectAssistantTaskWrapper previousWrapper = previousTask != null ? new ProjectAssistantTaskWrapper(previousTask) : null;
+
+            return new ProjectTaskDetailWrapper(currentWrapper, previousWrapper);
+        } catch (QueryException qe) {
+            throw new AuraHandledException('Failed to retrieve task details: ' + qe.getMessage());
+        } catch (Exception e) {
+            throw new AuraHandledException('An unexpected error occurred: ' + e.getMessage());
         }
-
-        ProjectAssistantTaskWrapper previousWrapper = previousTask != null ? new ProjectAssistantTaskWrapper(previousTask) : null;
-
-        return new ProjectTaskDetailWrapper(currentWrapper, previousWrapper);
     }
 
     @AuraEnabled(cacheable=true)
@@ -263,18 +350,48 @@ public without sharing class ProjectMonitoringNavController {
             return blockMessage;
         }
 
-        // Step 2: Find tasks created today for these opportunities
+        // Step 2: For In Development projects, check for most recent task regardless of date/fulfilled status
+        // For other projects, find tasks created today
+        Map<Id, Opportunity> opportunityMap = new Map<Id, Opportunity>();
+        if (!oppIds.isEmpty()) {
+            for (Opportunity opp : [SELECT Id, Project_Status__c FROM Opportunity WHERE Id IN :oppIds]) {
+                opportunityMap.put(opp.Id, opp);
+            }
+        }
+
         DateTime startOfToday = DateTime.newInstance(Date.today(), Time.newInstance(0, 0, 0, 0));
         DateTime endOfToday = DateTime.newInstance(Date.today().addDays(1), Time.newInstance(0, 0, 0, 0));
 
         if (!oppIds.isEmpty()) {
-            for (Project_Assistant_Task__c task : [
-                SELECT Id, Opportunity__c
-                FROM Project_Assistant_Task__c
-                WHERE Opportunity__c IN :oppIds
-                AND CreatedDate >= :startOfToday AND CreatedDate < :endOfToday
-            ]) {
-                oppToTodayTask.put(task.Opportunity__c, task);
+            for (ProjectAssistantTaskWrapper w : wrappers) {
+                if (w.opportunityId != null && opportunityMap.containsKey(w.opportunityId)) {
+                    Opportunity opp = opportunityMap.get(w.opportunityId);
+                    
+                    if (opp.Project_Status__c == 'In Development') {
+                        // For In Development projects, get the most recent task regardless of fulfilled status
+                        List<Project_Assistant_Task__c> recentTasks = [
+                            SELECT Id, Opportunity__c, Fulfilled__c
+                            FROM Project_Assistant_Task__c
+                            WHERE Opportunity__c = :w.opportunityId
+                            ORDER BY Due_Date__c DESC, CreatedDate DESC
+                            LIMIT 1
+                        ];
+                        if (!recentTasks.isEmpty()) {
+                            oppToTodayTask.put(w.opportunityId, recentTasks[0]);
+                        }
+                    } else {
+                        // For other project statuses, use existing logic (tasks created today)
+                        List<Project_Assistant_Task__c> todayTasks = [
+                            SELECT Id, Opportunity__c
+                            FROM Project_Assistant_Task__c
+                            WHERE Opportunity__c = :w.opportunityId
+                            AND CreatedDate >= :startOfToday AND CreatedDate < :endOfToday
+                        ];
+                        if (!todayTasks.isEmpty()) {
+                            oppToTodayTask.put(w.opportunityId, todayTasks[0]);
+                        }
+                    }
+                }
             }
         }
 
@@ -285,14 +402,32 @@ public without sharing class ProjectMonitoringNavController {
         for (ProjectAssistantTaskWrapper w : wrappers) {
             Project_Assistant_Task__c taskRecord;
             Boolean isUpdate = oppToTodayTask.containsKey(w.opportunityId);
+            Opportunity opp = opportunityMap.get(w.opportunityId);
 
             if (isUpdate) {
-                // Update only Fulfilled__c on existing tasks
+                // Update existing task (for In Development this will be the most recent task)
                 taskRecord = new Project_Assistant_Task__c(Id = oppToTodayTask.get(w.opportunityId).Id);
-                taskRecord.Fulfilled__c = true;
+                
+                // For In Development projects, update all fields, not just Fulfilled__c
+                if (opp != null && opp.Project_Status__c == 'In Development') {
+                    taskRecord.Previous_Day_Date__c = w.previousDayDate;
+                    taskRecord.Last_Meeting_Date__c = w.lastMeetingDate;
+                    taskRecord.Previous_Step__c = stringOrNull(w.previousStep);
+                    taskRecord.Previous_Agenda__c = stringOrNull(w.previousAgenda);
+                    taskRecord.Next_Agenda__c = stringOrNull(w.nextAgenda);
+                    taskRecord.Next_Meeting_Scheduled__c = stringOrNull(w.nextMeetingScheduled);
+                    taskRecord.Next_Meeting_Date__c = w.nextMeetingDate;
+                    taskRecord.Next_Steps__c = stringOrNull(w.nextSteps);
+                    taskRecord.Risk_and_Action__c = stringOrNull(w.riskAndAction);
+                    taskRecord.Reason__c = stringOrNull(w.reason);
+                    // Don't automatically set Fulfilled__c = true for In Development updates
+                } else {
+                    // For other project statuses, only update Fulfilled__c
+                    taskRecord.Fulfilled__c = true;
+                }
                 tasksToUpdate.add(taskRecord);
             } else {
-                // Insert new task for today
+                // Insert new task
                 taskRecord = new Project_Assistant_Task__c(Opportunity__c = w.opportunityId);
                 Date tomorrow = Date.today().addDays(1);
                 Integer dayOfWeek = Integer.valueOf(DateTime.newInstance(tomorrow, Time.newInstance(0,0,0,0)).format('u'));
@@ -401,208 +536,20 @@ public without sharing class ProjectMonitoringNavController {
 
     /**
      * Enhanced: Insert/Update Project Assistant Tasks with validation for ongoing and transition scenarios
+     * @deprecated Use insertProjectAssistantTasks instead for consistent In Development logic
      */
     @AuraEnabled
     public static Map<String, Object> upsertProjectAssistantTask(String fieldJson, String projectStatus) {
+        // Redirect to the main method to ensure consistent behavior
+        String result = insertProjectAssistantTasks(fieldJson);
         Map<String, Object> response = new Map<String, Object>();
-        List<ProjectAssistantTaskWrapper> wrappers =
-            (List<ProjectAssistantTaskWrapper>) JSON.deserialize(fieldJson, List<ProjectAssistantTaskWrapper>.class);
-
-        // Declare missing variables
-        Set<Id> oppIds = new Set<Id>();
-        Map<Id, Project_Assistant_Task__c> oppToTodayTask = new Map<Id, Project_Assistant_Task__c>();
-        List<String> oldTaskIds = new List<String>();
-        Map<Id, String> oppIdToNewStatus = new Map<Id, String>();
-        Map<Id, Boolean> repeatedDetailsWarning = new Map<Id, Boolean>();
-        Map<Id, String> repeatedDetailsMessage = new Map<Id, String>();
-        Boolean blockUpdate = false;
-        String blockMessage = '';
-
-        // Step 1: Collect Opportunity IDs
-        for (ProjectAssistantTaskWrapper w : wrappers) {
-            if (w.opportunityId != null) {
-                oppIds.add(w.opportunityId);
-                if (String.isNotBlank((String)w.recordId)) oldTaskIds.add((String)w.recordId);
-                oppIdToNewStatus.put(w.opportunityId, w.oppProjectStatus);
-            }
+        
+        if (result == 'success') {
+            response.put('success', true);
+        } else {
+            response.put('block', result);
         }
-
-        // Step 1.5: Check for repeated details on consecutive days
-        for (ProjectAssistantTaskWrapper w : wrappers) {
-            if (w.opportunityId != null) {
-                List<Project_Assistant_Task__c> lastTasks = [
-                    SELECT Id, Due_Date__c, Next_Steps__c, Risk_and_Action__c, Reason__c, Previous_Step__c, Previous_Agenda__c, Next_Agenda__c, Last_Meeting_Date__c, Next_Meeting_Scheduled__c, Next_Meeting_Date__c, Repeated_Details_Warning__c
-                    FROM Project_Assistant_Task__c
-                    WHERE Opportunity__c = :w.opportunityId
-                    ORDER BY Due_Date__c DESC
-                    LIMIT 1
-                ];
-                if (lastTasks.size() > 0) {
-                    Project_Assistant_Task__c lastTask = lastTasks[0];
-                    Integer repeatedCount = 0;
-                    Integer totalFields = 0;
-                    // Compare key fields
-                    if (lastTask.Next_Steps__c == w.nextSteps) { repeatedCount++; } totalFields++;
-                    if (lastTask.Risk_and_Action__c == w.riskAndAction) { repeatedCount++; } totalFields++;
-                    if (lastTask.Reason__c == w.reason) { repeatedCount++; } totalFields++;
-                    if (lastTask.Previous_Step__c == w.previousStep) { repeatedCount++; } totalFields++;
-                    if (lastTask.Previous_Agenda__c == w.previousAgenda) { repeatedCount++; } totalFields++;
-                    if (lastTask.Next_Agenda__c == w.nextAgenda) { repeatedCount++; } totalFields++;
-                    if (lastTask.Last_Meeting_Date__c == w.lastMeetingDate) { repeatedCount++; } totalFields++;
-                    if (lastTask.Next_Meeting_Scheduled__c == w.nextMeetingScheduled) { repeatedCount++; } totalFields++;
-                    if (lastTask.Next_Meeting_Date__c == w.nextMeetingDate) { repeatedCount++; } totalFields++;
-                    Boolean warningAlreadySet = lastTask.Repeated_Details_Warning__c == true;
-                    // If most fields are repeated, set warning
-                    if (repeatedCount >= 3 && !warningAlreadySet) {
-                        repeatedDetailsWarning.put(w.opportunityId, true);
-                        repeatedDetailsMessage.put(w.opportunityId, 'Warning: Details repeated for consecutive days. Please update project details.');
-                    } else if (repeatedCount >= 3 && warningAlreadySet) {
-                        blockUpdate = true;
-                        blockMessage = 'Error: Details have already been repeated and flagged. Please change details before proceeding.';
-                    }
-                }
-            }
-        }
-
-        // Block DML if error
-        if (blockUpdate) {
-            response.put('block', blockMessage);
-            return response;
-        }
-
-        // Step 2: Find tasks created today for these opportunities
-        DateTime startOfToday = DateTime.newInstance(Date.today(), Time.newInstance(0, 0, 0, 0));
-        DateTime endOfToday = DateTime.newInstance(Date.today().addDays(1), Time.newInstance(0, 0, 0, 0));
-
-        if (!oppIds.isEmpty()) {
-            for (Project_Assistant_Task__c task : [
-                SELECT Id, Opportunity__c
-                FROM Project_Assistant_Task__c
-                WHERE Opportunity__c IN :oppIds
-                AND CreatedDate >= :startOfToday AND CreatedDate < :endOfToday
-            ]) {
-                oppToTodayTask.put(task.Opportunity__c, task);
-            }
-        }
-
-        // Step 3: Create or update tasks
-        List<Project_Assistant_Task__c> tasksToInsert = new List<Project_Assistant_Task__c>();
-        List<Project_Assistant_Task__c> tasksToUpdate = new List<Project_Assistant_Task__c>();
-
-        for (ProjectAssistantTaskWrapper w : wrappers) {
-            Project_Assistant_Task__c taskRecord;
-            Boolean isUpdate = oppToTodayTask.containsKey(w.opportunityId);
-
-            if (isUpdate) {
-                taskRecord = new Project_Assistant_Task__c(Id = oppToTodayTask.get(w.opportunityId).Id);
-                taskRecord.Fulfilled__c = true; // Ensure Fulfilled__c is set to true when updating old record
-                // Copy previous record details for traceability
-                List<Project_Assistant_Task__c> prevTasks = [
-                    SELECT Previous_Day_Date__c, Last_Meeting_Date__c, Previous_Step__c, Previous_Agenda__c, Next_Agenda__c, Next_Meeting_Scheduled__c, Next_Meeting_Date__c, Next_Steps__c, Risk_and_Action__c, Reason__c
-                    FROM Project_Assistant_Task__c
-                    WHERE Opportunity__c = :w.opportunityId
-                    ORDER BY CreatedDate DESC
-                    LIMIT 1
-                ];
-                if (!prevTasks.isEmpty()) {
-                    Project_Assistant_Task__c prev = prevTasks[0];
-                    taskRecord.Previous_Day_Date__c = prev.Previous_Day_Date__c;
-                    taskRecord.Last_Meeting_Date__c = prev.Last_Meeting_Date__c;
-                    taskRecord.Previous_Step__c = prev.Previous_Step__c;
-                    taskRecord.Previous_Agenda__c = prev.Previous_Agenda__c;
-                    taskRecord.Next_Agenda__c = prev.Next_Agenda__c;
-                    taskRecord.Next_Meeting_Scheduled__c = prev.Next_Meeting_Scheduled__c;
-                    taskRecord.Next_Meeting_Date__c = prev.Next_Meeting_Date__c;
-                    taskRecord.Next_Steps__c = prev.Next_Steps__c;
-                    taskRecord.Risk_and_Action__c = prev.Risk_and_Action__c;
-                    taskRecord.Reason__c = prev.Reason__c;
-                }
-            } else {
-                taskRecord = new Project_Assistant_Task__c(Opportunity__c = w.opportunityId);
-                Date tomorrow = Date.today().addDays(1);
-                Integer dayOfWeek = Integer.valueOf(DateTime.newInstance(tomorrow, Time.newInstance(0,0,0,0)).format('u'));
-                if (dayOfWeek == 6) {
-                    // If tomorrow is Saturday, set Due Date to Monday
-                    taskRecord.Due_Date__c = tomorrow.addDays(2);
-                } else if (dayOfWeek == 7) {
-                    // If tomorrow is Sunday, set Due Date to Monday
-                    taskRecord.Due_Date__c = tomorrow.addDays(1);
-                } else {
-                    taskRecord.Due_Date__c = tomorrow;
-                }
-                // Copy previous record details for traceability
-                List<Project_Assistant_Task__c> prevTasks = [
-                    SELECT Previous_Day_Date__c, Last_Meeting_Date__c, Previous_Step__c, Previous_Agenda__c, Next_Agenda__c, Next_Meeting_Scheduled__c, Next_Meeting_Date__c, Next_Steps__c, Risk_and_Action__c, Reason__c
-                    FROM Project_Assistant_Task__c
-                    WHERE Opportunity__c = :w.opportunityId
-                    ORDER BY CreatedDate DESC
-                    LIMIT 1
-                ];
-                if (!prevTasks.isEmpty()) {
-                    Project_Assistant_Task__c prev = prevTasks[0];
-                    taskRecord.Previous_Day_Date__c = prev.Previous_Day_Date__c;
-                    taskRecord.Last_Meeting_Date__c = prev.Last_Meeting_Date__c;
-                    taskRecord.Previous_Step__c = prev.Previous_Step__c;
-                    taskRecord.Previous_Agenda__c = prev.Previous_Agenda__c;
-                    taskRecord.Next_Agenda__c = prev.Next_Agenda__c;
-                    taskRecord.Next_Meeting_Scheduled__c = prev.Next_Meeting_Scheduled__c;
-                    taskRecord.Next_Meeting_Date__c = prev.Next_Meeting_Date__c;
-                    taskRecord.Next_Steps__c = prev.Next_Steps__c;
-                    taskRecord.Risk_and_Action__c = prev.Risk_and_Action__c;
-                    taskRecord.Reason__c = prev.Reason__c;
-                }
-            }
-
-            taskRecord.Previous_Day_Date__c = w.previousDayDate;
-            taskRecord.Last_Meeting_Date__c = w.lastMeetingDate;
-            taskRecord.Previous_Step__c = stringOrNull(w.previousStep);
-            taskRecord.Previous_Agenda__c = stringOrNull(w.previousAgenda);
-            taskRecord.Next_Agenda__c = stringOrNull(w.nextAgenda);
-            taskRecord.Next_Meeting_Scheduled__c = stringOrNull(w.nextMeetingScheduled);
-            taskRecord.Next_Meeting_Date__c = w.nextMeetingDate;
-            taskRecord.Next_Steps__c = stringOrNull(w.nextSteps);
-            taskRecord.Risk_and_Action__c = stringOrNull(w.riskAndAction);
-            taskRecord.Reason__c = stringOrNull(w.reason);
-            // Set warning flag if repeated details detected
-            if (repeatedDetailsWarning.containsKey(w.opportunityId) && repeatedDetailsWarning.get(w.opportunityId)) {
-                taskRecord.Repeated_Details_Warning__c = true;
-            }
-
-            if (isUpdate) {
-                tasksToUpdate.add(taskRecord);
-            } else {
-                tasksToInsert.add(taskRecord);
-            }
-        }
-
-        // Step 4: DML Operations
-        if (!tasksToInsert.isEmpty()) {
-            insert tasksToInsert;
-        }
-        if (!tasksToUpdate.isEmpty()) {
-            update tasksToUpdate;
-        }
-
-        // Step 5: Fulfill previous tasks
-        List<Project_Assistant_Task__c> tasksToFulfill = new List<Project_Assistant_Task__c>();
-        for (String taskId : oldTaskIds) {
-            // Update only previous records, not the new one
-            tasksToFulfill.add(new Project_Assistant_Task__c(Id = taskId, Fulfilled__c = true));
-        }
-        if (!tasksToFulfill.isEmpty()) {
-            update tasksToFulfill;
-        }
-
-        // Step 6: Update Opportunity Status
-        if (!oppIdToNewStatus.isEmpty()) {
-            List<Opportunity> oppsToUpdate = new List<Opportunity>();
-            for (Id oppId : oppIdToNewStatus.keySet()) {
-                oppsToUpdate.add(new Opportunity(Id = oppId, Project_Status__c = oppIdToNewStatus.get(oppId)));
-            }
-            update oppsToUpdate;
-        }
-
-        response.put('success', true);
+        
         return response;
     }
 
@@ -680,7 +627,8 @@ public without sharing class ProjectMonitoringNavController {
             }
             
             // Fields on Project_Assistant_Task__c
-            this.previousDayDate      = pat.Previous_Day_Date__c;
+            // Set previousDayDate to CreatedDate to show when this record was created (last update)
+            this.previousDayDate      = pat.CreatedDate;
             this.nextMeetingScheduled = pat.Next_Meeting_Scheduled__c;
             this.lastMeetingDate      = pat.Last_Meeting_Date__c;
             this.nextMeetingDate      = pat.Next_Meeting_Date__c;

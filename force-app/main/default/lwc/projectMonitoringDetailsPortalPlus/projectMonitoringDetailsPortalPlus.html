@@ -14,15 +14,30 @@
                             <h1 lwc:else class="text-dark fw-bolder fs-2">Project Monitoring</h1>
                             <template lwc:if={managerSelected}>
                                 <div class="d-flex align-items-center gap-3">
-                                    <button class="btn btn-primary" onclick={handleChangeManager}>Change Project
-                                        Manager</button>
-                                    <div>
-                                        <select class="form-select" onchange={handleStatusFilterChange}>
-                                            <template for:each={statusFilterOptions} for:item="opt">
-                                                <option key={opt.value} value={opt.value} selected={opt.selected}>
-                                                    {opt.label}</option>
-                                            </template>
-                                        </select>
+                                    <button class="btn btn-primary" onclick={handleChangeManager}>
+                                        <i class="bi bi-person-gear me-2"></i>Change Project Manager
+                                    </button>
+                                    
+                                    <!-- Enhanced Filter Card -->
+                                    <div class="card border-light-primary shadow-sm">
+                                        <div class="card-body p-3">
+                                            <div class="d-flex align-items-center gap-2">
+                                                <i class="bi bi-funnel text-primary"></i>
+                                                <label class="form-label fw-semibold text-primary mb-0 me-2">Filter:</label>
+                                                <select class="form-select form-select-sm border-primary" 
+                                                        onchange={handleStatusFilterChange}
+                                                        style="min-width: 180px;">
+                                                    <template for:each={statusFilterOptions} for:item="opt">
+                                                        <option key={opt.value} value={opt.value} selected={opt.selected}>
+                                                            {opt.label}
+                                                        </option>
+                                                    </template>
+                                                </select>
+                                                <span lwc:if={isLoading} class="spinner-border spinner-border-sm text-primary ms-2" role="status">
+                                                    <span class="visually-hidden">Loading...</span>
+                                                </span>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </template>
@@ -65,38 +80,83 @@
 
                     <!-- Task Detail View -->
                     <template lwc:if={showTaskCards}>
+                        <!-- Filter Status Indicator -->
+                        <div class="row gx-5 gx-xl-10 mb-4">
+                            <div class="col-12">
+                                <div class="card border-0 bg-light-primary">
+                                    <div class="card-body p-3">
+                                        <div class="d-flex align-items-center justify-content-between">
+                                            <div class="d-flex align-items-center">
+                                                <i class="bi {filterDisplayInfo.icon} text-{filterDisplayInfo.color} fs-4 me-3"></i>
+                                                <div>
+                                                    <h5 class="text-{filterDisplayInfo.color} fw-bold mb-0">
+                                                        {selectedStatusFilter} Filter Active
+                                                    </h5>
+                                                    <p class="text-muted mb-0 fs-7">{filterDisplayInfo.description}</p>
+                                                </div>
+                                            </div>
+                                            <div class="text-end">
+                                                <div class="badge badge-light-{filterDisplayInfo.color} fs-6">
+                                                    {projectCountDisplay}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="row gx-5 gx-xl-10">
                             <!-- Project Details -->
                             <div class="col-xxl-4 mb-5">
                                 <div class="card card-flush h-xl-100 shadow" style={priorityLineStyle}>
-                                    <div class="card-header">
+                                    <div class="card-header bg-light-primary">
                                         <div class="card-title">
                                             <h2 class="fw-bold text-primary">Project Details</h2>
                                         </div>
                                     </div>
                                     <div class="card-body pt-0">
-                                        <p><strong>Project:</strong> {previousTask.opportunityName}</p>
-                                        <label class="form-label fw-semibold">Project Status</label>
-                                        <select class="form-select" onchange={handleProjectStatusChange}
-                                            disabled={viewOnlyMode}>
-                                            <template for:each={mappedProjectStatusOptions} for:item="opt">
-                                                <option key={opt.value} value={opt.value} selected={opt.selected}>{opt.label}</option>
-                                            </template>
-                                        </select>
-                                        <br />
+                                        <div class="mb-4">
+                                            <p class="fw-bold text-gray-800 fs-6 mb-2">
+                                                <i class="bi bi-diagram-3 text-primary me-2"></i>
+                                                <strong>Project:</strong> {previousTask.opportunityName}
+                                            </p>
+                                        </div>
+                                        
+                                        <!-- Enhanced Project Status Card -->
+                                        <div class="card border-light-secondary mb-4">
+                                            <div class="card-header bg-light-secondary">
+                                                <h6 class="card-title text-dark fw-bold mb-0">
+                                                    <i class="bi bi-gear me-2"></i>Project Status
+                                                </h6>
+                                            </div>
+                                            <div class="card-body">
+                                                <select class="form-select border-secondary" 
+                                                        onchange={handleProjectStatusChange}
+                                                        disabled={viewOnlyMode}>
+                                                    <template for:each={mappedProjectStatusOptions} for:item="opt">
+                                                        <option key={opt.value} value={opt.value} selected={opt.selected}>
+                                                            {opt.label}
+                                                        </option>
+                                                    </template>
+                                                </select>
+                                            </div>
+                                        </div>
                                         <template lwc:if={previousTask.clientOnboardingSheet}>
                                             <p><strong>Client Onboarding Sheet:</strong>
-                                                <a href={previousTask.clientOnboardingSheet} target="_blank">
-                                                    View Sheet
-                                                </a>
+                                                <button class="btn btn-link p-0 text-decoration-none" 
+                                                        onclick={openClientOnboardingModal}>
+                                                    <i class="bi bi-file-earmark-excel text-success me-1"></i>View Sheet
+                                                </button>
                                             </p>
                                         </template>
 
                                         <template lwc:if={previousTask.projectTracker}>
                                             <p><strong>Project Tracker:</strong>
-                                                <a href={previousTask.projectTracker} target="_blank">
-                                                    View Sheet
-                                                </a>
+                                                <button class="btn btn-link p-0 text-decoration-none" 
+                                                        onclick={openProjectTrackerModal}>
+                                                    <i class="bi bi-file-earmark-spreadsheet text-info me-1"></i>View Sheet
+                                                </button>
                                             </p>
                                         </template>
                                     </div>
@@ -108,7 +168,7 @@
                                 <!-- Previous Actions -->
                                 <template lwc:if={showPreviousActions}>
                                     <div class="card card-flush shadow">
-                                        <div class="card-header">
+                                        <div class="card-header bg-light-success">
                                             <div class="card-title">
                                                 <h2 class="fw-bold text-success">Previous Actions</h2>
                                             </div>
@@ -176,7 +236,7 @@
                                 <!-- Goals for Today / Support Fields -->
                                 <template lwc:if={showTaskCards}>
                                     <div class="card card-flush mt-6 shadow">
-                                        <div class="card-header">
+                                        <div class="card-header bg-light-warning">
                                             <div class="card-title">
                                                 <h2 lwc:if={isClosedOrGoLive} class="fw-bold text-warning">Follow Up Task
                                                 </h2>
@@ -184,97 +244,152 @@
                                             </div>
                                         </div>
                                         <div class="card-body pt-0">
-                                            <!-- Next Meeting Scheduled / Follow-up Required -->
-                                            <div class="mb-3">
-                                                <label class="form-label fw-semibold">{followUpRequiredLabel}</label>
-                                                <select class="form-select" onchange={handleNextMeetingScheduledChange} disabled={viewOnlyMode}>
-                                                    <template for:each={mappedMeetingScheduledOptions} for:item="opt">
-                                                        <option key={opt.value} value={opt.value} selected={opt.selected}>{opt.label}</option>
+                                            
+                                            <!-- Meeting Details Sub-Card -->
+                                            <div class="card border-light-info mb-4">
+                                                <div class="card-header bg-light-info">
+                                                    <h5 class="card-title text-info fw-bold mb-0">
+                                                        <i class="bi bi-calendar-event me-2"></i>Meeting Details
+                                                    </h5>
+                                                </div>
+                                                <div class="card-body">
+                                                    <!-- Next Meeting Scheduled / Follow-up Required -->
+                                                    <div class="mb-3">
+                                                        <label class="form-label fw-semibold">{followUpRequiredLabel}</label>
+                                                        <select class="form-select" onchange={handleNextMeetingScheduledChange} disabled={viewOnlyMode}>
+                                                            <template for:each={mappedMeetingScheduledOptions} for:item="opt">
+                                                                <option key={opt.value} value={opt.value} selected={opt.selected}>{opt.label}</option>
+                                                            </template>
+                                                        </select>
+                                                    </div>
+
+                                                    <!-- Next Meeting Date for In Development follow-up -->
+                                                    <template lwc:if={showInDevSupportFields}>
+                                                        <div class="mb-3">
+                                                            <label class="form-label fw-semibold">Next Meeting Date</label>
+                                                            <c-flat-pickr-input value={currentNextMeetingDate} options={flatpickrOptions} onchange={handleNextMeetingDateChange} disabled={viewOnlyMode}></c-flat-pickr-input>
+                                                        </div>
                                                     </template>
-                                                </select>
+
+                                                    <!-- Post Go Live Support Date when support required -->
+                                                    <template lwc:if={showGoLiveSupportFields}>
+                                                        <div class="mb-3">
+                                                            <label class="form-label fw-semibold">Post Go Live Support Start<span class="text-danger">*</span></label>
+                                                            <c-flat-pickr-input value={currentNextMeetingDate} options={flatpickrOptions} onchange={handleNextMeetingDateChange} disabled={viewOnlyMode}></c-flat-pickr-input>
+                                                        </div>
+                                                        <div class="mb-3">
+                                                            <label class="form-label fw-semibold">Post Go Live Support End<span class="text-danger">*</span></label>
+                                                            <c-flat-pickr-input data-id="supportEnd" value={currentSupportEndDate} options={flatpickrOptions} onchange={handleSupportEndDateChange} disabled={viewOnlyMode}></c-flat-pickr-input>
+                                                        </div>
+                                                        <div class="mb-3">
+                                                            <label class="form-label fw-semibold">Post Go Live Support Plan<span class="text-danger">*</span></label>
+                                                            <lightning-input-rich-text value={currentSupportPlan} onchange={handleSupportPlanChange} disabled={viewOnlyMode}></lightning-input-rich-text>
+                                                        </div>
+                                                    </template>
+                                                    
+                                                    <!-- Closed Status Support Fields when follow-up required -->
+                                                    <template lwc:if={showClosedSupportFields}>
+                                                        <div class="mb-3">
+                                                            <label class="form-label fw-semibold">{nextMeetingDateLabel}<span class="text-danger">*</span></label>
+                                                            <c-flat-pickr-input value={currentNextMeetingDate} options={flatpickrOptions} onchange={handleNextMeetingDateChange} disabled={viewOnlyMode}></c-flat-pickr-input>
+                                                        </div>
+                                                    </template>
+
+                                                    <!-- Meeting Agenda Fields -->
+                                                    <template lwc:if={showClosedSupportFields}>
+                                                        <div class="mb-3">
+                                                            <label class="form-label fw-semibold">{nextMeetingAgendaLabel}<span class="text-danger">*</span></label>
+                                                            <textarea class="form-control" disabled={viewOnlyMode} onchange={handleAgendaChange}>{currentAgenda}</textarea>
+                                                        </div>
+                                                    </template>
+
+                                                    <!-- New Next Steps widget when not Closed/Go Live -->
+                                                    <template lwc:if={showNextAgendaField}>
+                                                        <div class="mb-3">
+                                                            <label class="form-label fw-semibold">Next Meeting Agenda</label>
+                                                            <textarea class="form-control" disabled={viewOnlyMode} onchange={handleAgendaChange}>{currentAgenda}</textarea>
+                                                        </div>
+                                                    </template>
+                                                </div>
                                             </div>
-                                            <!-- Reason when no support -->
+
+                                            <!-- Project Progress Sub-Card -->
+                                            <div class="card border-light-success mb-4">
+                                                <div class="card-header bg-light-success">
+                                                    <h5 class="card-title text-success fw-bold mb-0">
+                                                        <i class="bi bi-arrow-right-circle me-2"></i>Project Progress
+                                                    </h5>
+                                                </div>
+                                                <div class="card-body">
+                                                    <!-- In Development: Next Steps -->
+                                                    <template lwc:if={showNextStepsField}>
+                                                        <div class="mb-3">
+                                                            <label class="form-label fw-semibold">Next Steps</label>
+                                                            <textarea class="form-control" disabled={viewOnlyMode} onchange={handleNextStepsChange}>{newNextSteps}</textarea>
+                                                        </div>
+                                                    </template>
+                                                    
+                                                    <!-- Risk & Action field (required for In Development, optional for Closed) -->
+                                                    <template lwc:if={showRiskAndActionField}>
+                                                        <div class="mb-3">
+                                                            <label class="form-label fw-semibold">Risk & Action</label>
+                                                            <input type="text" class="form-control" value={currentRiskAndAction} onchange={handleRiskAndActionChange} disabled={viewOnlyMode}/>
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                            </div>
+
+                                            <!-- Reason Fields (outside of sub-cards since they're conditional and replace other fields) -->
                                             <template lwc:if={showReasonField}>
-                                                <div class="mb-3">
-                                                    <label class="form-label fw-semibold">Reason</label>
-                                                    <textarea class="form-control" disabled={viewOnlyMode} onchange={handleReasonChange} placeholder="Enter reason...">{currentReason}</textarea>
+                                                <div class="card border-light-warning mb-4">
+                                                    <div class="card-header bg-light-warning">
+                                                        <h5 class="card-title text-warning fw-bold mb-0">
+                                                            <i class="bi bi-exclamation-triangle me-2"></i>Reason for No Follow-up
+                                                        </h5>
+                                                    </div>
+                                                    <div class="card-body">
+                                                        <div class="mb-3">
+                                                            <label class="form-label fw-semibold">Reason</label>
+                                                            <textarea class="form-control" disabled={viewOnlyMode} onchange={handleReasonChange} placeholder="Enter reason...">{currentReason}</textarea>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </template>
                                             
                                             <!-- Go Live specific reason when no support -->
                                             <template lwc:if={showGoLiveReasonField}>
-                                                <div class="mb-3">
-                                                    <label class="form-label fw-semibold">Reason</label>
-                                                    <textarea class="form-control" disabled={viewOnlyMode} onchange={handleReasonChange} placeholder="Enter reason...">{currentReason}</textarea>
+                                                <div class="card border-light-warning mb-4">
+                                                    <div class="card-header bg-light-warning">
+                                                        <h5 class="card-title text-warning fw-bold mb-0">
+                                                            <i class="bi bi-exclamation-triangle me-2"></i>Reason for No Support
+                                                        </h5>
+                                                    </div>
+                                                    <div class="card-body">
+                                                        <div class="mb-3">
+                                                            <label class="form-label fw-semibold">Reason</label>
+                                                            <textarea class="form-control" disabled={viewOnlyMode} onchange={handleReasonChange} placeholder="Enter reason...">{currentReason}</textarea>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </template>
                                             
                                             <!-- Closed status specific reason when no follow-up required -->
                                             <template lwc:if={showClosedReasonField}>
-                                                <div class="mb-3">
-                                                    <label class="form-label fw-semibold">Reason</label>
-                                                    <textarea class="form-control" disabled={viewOnlyMode} onchange={handleReasonChange} placeholder="Enter reason...">{currentReason}</textarea>
+                                                <div class="card border-light-warning mb-4">
+                                                    <div class="card-header bg-light-warning">
+                                                        <h5 class="card-title text-warning fw-bold mb-0">
+                                                            <i class="bi bi-exclamation-triangle me-2"></i>Reason for No Follow-up
+                                                        </h5>
+                                                    </div>
+                                                    <div class="card-body">
+                                                        <div class="mb-3">
+                                                            <label class="form-label fw-semibold">Reason</label>
+                                                            <textarea class="form-control" disabled={viewOnlyMode} onchange={handleReasonChange} placeholder="Enter reason...">{currentReason}</textarea>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </template>
 
-                                            <!-- Next Meeting Date for In Development follow-up -->
-                                            <template lwc:if={showInDevSupportFields}>
-                                                <div class="mb-3">
-                                                    <label class="form-label fw-semibold">Next Meeting Date</label>
-                                                    <c-flat-pickr-input value={currentNextMeetingDate} options={flatpickrOptions} onchange={handleNextMeetingDateChange} disabled={viewOnlyMode}></c-flat-pickr-input>
-                                                </div>
-                                            </template>
-
-                                            <!-- Post Go Live Support Date when support required -->
-                                            <template lwc:if={showGoLiveSupportFields}>
-                                                <div class="mb-3">
-                                                    <label class="form-label fw-semibold">Post Go Live Support Start<span class="text-danger">*</span></label>
-                                                    <c-flat-pickr-input value={currentNextMeetingDate} options={flatpickrOptions} onchange={handleNextMeetingDateChange} disabled={viewOnlyMode}></c-flat-pickr-input>
-                                                </div>
-                                                <div class="mb-3">
-                                                    <label class="form-label fw-semibold">Post Go Live Support End<span class="text-danger">*</span></label>
-                                                    <c-flat-pickr-input data-id="supportEnd" value={currentSupportEndDate} options={flatpickrOptions} onchange={handleSupportEndDateChange} disabled={viewOnlyMode}></c-flat-pickr-input>
-                                                </div>
-                                                <div class="mb-3">
-                                                    <label class="form-label fw-semibold">Post Go Live Support Plan<span class="text-danger">*</span></label>
-                                                    <lightning-input-rich-text value={currentSupportPlan} onchange={handleSupportPlanChange} disabled={viewOnlyMode}></lightning-input-rich-text>
-                                                </div>
-                                            </template>
-                                            
-                                            <!-- Closed Status Support Fields when follow-up required -->
-                                            <template lwc:if={showClosedSupportFields}>
-                                                <div class="mb-3">
-                                                    <label class="form-label fw-semibold">{nextMeetingDateLabel}<span class="text-danger">*</span></label>
-                                                    <c-flat-pickr-input value={currentNextMeetingDate} options={flatpickrOptions} onchange={handleNextMeetingDateChange} disabled={viewOnlyMode}></c-flat-pickr-input>
-                                                </div>
-                                                <div class="mb-3">
-                                                    <label class="form-label fw-semibold">{nextMeetingAgendaLabel}<span class="text-danger">*</span></label>
-                                                    <textarea class="form-control" disabled={viewOnlyMode} onchange={handleAgendaChange}>{currentAgenda}</textarea>
-                                                </div>
-                                            </template>
-                                            <!-- New Next Steps widget when not Closed/Go Live -->
-                                            <template lwc:if={showNextAgendaField}>
-                                                <div class="mb-3">
-                                                    <label class="form-label fw-semibold">Next Meeting Agenda</label>
-                                                    <textarea class="form-control" disabled={viewOnlyMode} onchange={handleAgendaChange}>{currentAgenda}</textarea>
-                                                </div>
-                                            </template>
-
-                                            <!-- In Development: Next Steps and Risk & Action -->
-                                            <template lwc:if={showNextStepsField}>
-                                                <div class="mb-3">
-                                                    <label class="form-label fw-semibold">Next Steps</label>
-                                                    <textarea class="form-control" disabled={viewOnlyMode} onchange={handleNextStepsChange}>{newNextSteps}</textarea>
-                                                </div>
-                                            </template>
-                                            
-                                            <!-- Risk & Action field (required for In Development, optional for Closed) -->
-                                            <template lwc:if={showRiskAndActionField}>
-                                                <div class="mb-3">
-                                                    <label class="form-label fw-semibold">Risk & Action</label>
-                                                    <input type="text" class="form-control" value={currentRiskAndAction} onchange={handleRiskAndActionChange} disabled={viewOnlyMode}/>
-                                                </div>
-                                            </template>
                                             <!-- Save / Navigation -->
                                             <div class="d-flex justify-content-between mt-4">
                                                 <div>
@@ -416,6 +531,70 @@
                 <div class="slds-modal__content">{blockMessage}</div>
                 <footer class="slds-modal__footer">
                     <lightning-button label="Close" onclick={closeBlockModal}></lightning-button>
+                </footer>
+            </div>
+        </section>
+        <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
+
+    <!-- Document Modal -->
+    <template lwc:if={showDocumentModal}>
+        <section role="dialog" tabindex="-1" class="slds-modal slds-fade-in-open slds-modal_large">
+            <div class="slds-modal__container">
+                <header class="slds-modal__header">
+                    <button class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse"
+                            title="Close" onclick={closeDocumentModal}>
+                        <lightning-icon icon-name="utility:close" alternative-text="close" size="small"></lightning-icon>
+                        <span class="slds-assistive-text">Close</span>
+                    </button>
+                    <h2 class="slds-modal__title slds-hyphenate">
+                        <i class={modalDocumentIcon}></i>
+                        {modalTitle}
+                    </h2>
+                </header>
+                <div class="slds-modal__content slds-p-around_medium" style="height: 70vh;">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="badge bg-info">Document Preview</span>
+                            <small class="text-muted">{documentTypeMessage}</small>
+                        </div>
+                        <a href={currentDocumentUrl} target="_blank" class="btn btn-outline-primary btn-sm">
+                            <i class="bi bi-box-arrow-up-right me-1"></i>Open in New Tab
+                        </a>
+                    </div>
+                    
+                    <!-- Excel/Google Sheets Preview -->
+                    <template lwc:if={isExcelOrSheets}>
+                        <iframe 
+                            src={embedUrl} 
+                            style="width: 100%; height: 100%; border: 1px solid #ddd; border-radius: 4px;"
+                            title={modalTitle}>
+                        </iframe>
+                    </template>
+                    
+                    <!-- PDF Preview -->
+                    <template lwc:if={isPdf}>
+                        <iframe 
+                            src={currentDocumentUrl} 
+                            style="width: 100%; height: 100%; border: 1px solid #ddd; border-radius: 4px;"
+                            title={modalTitle}>
+                        </iframe>
+                    </template>
+                    
+                    <!-- Other Document Types -->
+                    <template lwc:if={isOtherDocument}>
+                        <div class="text-center p-5">
+                            <i class="bi bi-file-earmark-text" style="font-size: 4rem; color: #6c757d;"></i>
+                            <h5 class="mt-3">Document Preview Not Available</h5>
+                            <p class="text-muted">This document type cannot be previewed in the browser.</p>
+                            <p class="text-muted">Please click "Open in New Tab" to view the document.</p>
+                        </div>
+                    </template>
+                </div>
+                <footer class="slds-modal__footer">
+                    <lightning-button label="Close" onclick={closeDocumentModal}></lightning-button>
+                    <lightning-button variant="brand" label="Open in New Tab" 
+                                    onclick={openInNewTab} class="slds-m-left_x-small"></lightning-button>
                 </footer>
             </div>
         </section>

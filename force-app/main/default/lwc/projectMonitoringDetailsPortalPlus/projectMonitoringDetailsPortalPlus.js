@@ -43,6 +43,13 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
     @track skipSupport = false;
     @track showConfirmNoSupportModal = false;
 
+    // Document Modal Properties
+    @track showDocumentModal = false;
+    @track currentDocumentUrl = '';
+    @track modalTitle = '';
+    @track modalDocumentIcon = '';
+    @track embedUrl = '';
+
     @track viewOnlyMode = false;
 
     // Show support-related fields only when follow-up required
@@ -297,7 +304,7 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
     }
 
     get previousDayDate() {
-        return this.currentTask ? this.currentTask.dueDate : null;
+        return this.currentTask ? this.currentTask.previousDayDate : null;
     }
     // Show the current record's "lastMeetingDate" as the last meeting date
     get lastMeetingDate() {
@@ -349,6 +356,7 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
     }
 
     resetAllInputs() {
+        // Reset all form fields
         this.currentNextMeetingScheduled = '';
         this.currentNextMeetingDate = '';
         this.newNextSteps = '';
@@ -357,25 +365,47 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
         this.currentReason = '';
         this.currentSupportEndDate = '';
         this.currentSupportPlan = '';
+        
+        // Reset warnings and state flags
         this.repeatedDetailsWarning = '';
+        this.skipSupport = false;
+        this.showConfirmNoSupportModal = false;
+        this.showTaskModal = false;
+        
+        // Clear any previous error states
+        this.noTasksError = false;
+        
+        // Reset resource selection if any
+        this.resource = { Id: '', Name: '' };
     }
 
     handleStatusFilterChange(event) {
         const newFilter = event.target.value;
+        const previousFilter = this.selectedStatusFilter;
+        
+        // Don't reload if the same filter is selected
+        if (newFilter === previousFilter) {
+            return;
+        }
+        
         this.selectedStatusFilter = newFilter;
         
         // If a project manager is already selected, reload data with new filter
         if (this.portalUserId && this.managerSelected) {
             this.isLoading = true;
-            this.currentTask = null;
-            this.previousTask = null;
-            this.allTaskIds = [];
-            this.currentIndex = 0;
-            this.currentRecordId = '';
+            
+            // Reset current state
+            this.resetTaskState();
+            
+            // Clear any existing warnings or errors
+            this.repeatedDetailsWarning = '';
             this.noTasksError = false;
             
             // Determine mode based on current view mode
             const mode = this.viewOnlyMode ? 'view' : 'update';
+            
+            // Show filter change notification
+            this.showFilterChangeMessage(previousFilter, newFilter);
             
             getProjectIds({ 
                 portalUserId: this.portalUserId, 
@@ -385,21 +415,77 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
             .then(projectIds => {
                 if (!projectIds || projectIds.length === 0) {
                     this.noTasksError = true;
+                    this.showNoProjectsMessage(newFilter);
                     return;
                 }
+                
                 this.allTaskIds = projectIds;
                 this.currentIndex = 0;
                 this.currentRecordId = projectIds[0];
+                
+                // Reset all input fields when switching filters
+                this.resetAllInputs();
+                
+                // Fetch the first task details
                 this.fetchTaskDetails(this.currentRecordId);
+                
+                // Show success message
+                this.showFilterSuccessMessage(newFilter, projectIds.length);
             })
             .catch(error => {
-                this.showError('Failed to load projects with selected filter.');
+                // Revert filter on error
+                this.selectedStatusFilter = previousFilter;
+                this.showError(`Failed to load projects with "${newFilter}" filter. Please try again.`);
                 console.error('Filter change error:', error);
             })
             .finally(() => {
                 this.isLoading = false;
             });
         }
+    }
+    
+    // Helper method to reset task state
+    resetTaskState() {
+        this.currentTask = null;
+        this.previousTask = null;
+        this.allTaskIds = [];
+        this.currentIndex = 0;
+        this.currentRecordId = '';
+    }
+    
+    // Helper method to show filter change notification
+    showFilterChangeMessage(previousFilter, newFilter) {
+        if (previousFilter && newFilter) {
+            const event = new ShowToastEvent({
+                title: 'Filter Changed',
+                message: `Switching from "${previousFilter}" to "${newFilter}" filter...`,
+                variant: 'info',
+                mode: 'dismissable'
+            });
+            this.dispatchEvent(event);
+        }
+    }
+    
+    // Helper method to show no projects message
+    showNoProjectsMessage(filterName) {
+        const event = new ShowToastEvent({
+            title: 'No Projects Found',
+            message: `No projects match the "${filterName}" filter criteria.`,
+            variant: 'warning',
+            mode: 'dismissable'
+        });
+        this.dispatchEvent(event);
+    }
+    
+    // Helper method to show filter success message
+    showFilterSuccessMessage(filterName, count) {
+        const event = new ShowToastEvent({
+            title: 'Filter Applied',
+            message: `Found ${count} project${count !== 1 ? 's' : ''} matching "${filterName}" filter.`,
+            variant: 'success',
+            mode: 'dismissable'
+        });
+        this.dispatchEvent(event);
     }
 
     fetchTaskDetails(opportunityId) {
@@ -424,16 +510,21 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
         const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0);
         const prevDateStr = this.previousTask?.nextMeetingDate;
         const prevDate = prevDateStr ? new Date(prevDateStr) : null;
+        
+        // If Next Meeting Date is in the future, auto-populate all meeting fields
         if (prevDate && prevDate > todayDate) {
             this.currentNextMeetingScheduled = this.previousTask.nextMeetingScheduled || '';
             this.currentNextMeetingDate = this.previousTask.nextMeetingDate || '';
+            this.currentAgenda = this.previousTask.nextAgenda || '';
         } else {
-            this.currentNextMeetingScheduled = task?.nextMeetingScheduled || '';
-            this.currentNextMeetingDate = task?.nextMeetingDate || '';
+            // If Next Meeting Date is today or in the past, show blank fields
+            this.currentNextMeetingScheduled = '';
+            this.currentNextMeetingDate = '';
+            this.currentAgenda = '';
         }
+        
         // Clear next-day input fields by default
         this.newNextSteps = '';
-        this.currentAgenda = '';
         this.currentRiskAndAction = '';
         this.currentReason = '';
         this.currentSupportEndDate = '';
@@ -485,7 +576,30 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
 
     handleNextMeetingDateChange(e) {
         const component = this.template.querySelector('c-flat-pickr-input');
-        this.currentNextMeetingDate = component?.value || '';
+        const newDateValue = component?.value || '';
+        this.currentNextMeetingDate = newDateValue;
+        
+        // Check if the selected date is in the future
+        if (newDateValue) {
+            const selectedDate = new Date(newDateValue);
+            const todayDate = new Date(); 
+            todayDate.setHours(0, 0, 0, 0);
+            
+            // If date is today or in the past, clear meeting fields
+            if (selectedDate <= todayDate) {
+                this.currentNextMeetingScheduled = '';
+                this.currentAgenda = '';
+            }
+            // If date is in the future, auto-populate from previous task if available
+            else if (this.previousTask && this.previousTask.nextMeetingDate) {
+                const prevDate = new Date(this.previousTask.nextMeetingDate);
+                // Only auto-populate if the previous task's date was also in the future
+                if (prevDate > todayDate) {
+                    this.currentNextMeetingScheduled = this.previousTask.nextMeetingScheduled || '';
+                    this.currentAgenda = this.previousTask.nextAgenda || '';
+                }
+            }
+        }
     }
     // Handle Go Live support end date change
     handleSupportEndDateChange(e) {
@@ -872,5 +986,161 @@ export default class ProjectMonitoringDetailsPortalPlus extends LightningElement
         .finally(() => {
             this.isLoading = false;
         });
+    }
+
+    // Get filter display information with icons and colors
+    get filterDisplayInfo() {
+        const filterMap = {
+            'Due Today': { 
+                icon: 'bi-clock', 
+                color: 'danger', 
+                description: 'Tasks due today' 
+            },
+            'Open': { 
+                icon: 'bi-play-circle', 
+                color: 'warning', 
+                description: 'Projects without tasks' 
+            },
+            'In Development': { 
+                icon: 'bi-hammer', 
+                color: 'primary', 
+                description: 'Active development projects' 
+            },
+            'Go Live': { 
+                icon: 'bi-rocket-takeoff', 
+                color: 'success', 
+                description: 'Projects going live' 
+            },
+            'Closed': { 
+                icon: 'bi-check-circle', 
+                color: 'secondary', 
+                description: 'Completed projects' 
+            },
+            'All': { 
+                icon: 'bi-list', 
+                color: 'info', 
+                description: 'All projects' 
+            }
+        };
+        
+        return filterMap[this.selectedStatusFilter] || filterMap['All'];
+    }
+
+    // Get current project count display
+    get projectCountDisplay() {
+        if (!this.allTaskIds || this.allTaskIds.length === 0) {
+            return 'No projects';
+        }
+        const current = this.currentIndex + 1;
+        const total = this.allTaskIds.length;
+        return `${current} of ${total} project${total !== 1 ? 's' : ''}`;
+    }
+
+    // Document type detection getters
+    get isExcelOrSheets() {
+        if (!this.currentDocumentUrl) return false;
+        const url = this.currentDocumentUrl.toLowerCase();
+        return url.includes('docs.google.com/spreadsheets') || 
+               url.includes('onedrive.live.com') ||
+               url.includes('sharepoint.com') ||
+               url.includes('.xlsx') || 
+               url.includes('.xls');
+    }
+
+    get isPdf() {
+        if (!this.currentDocumentUrl) return false;
+        const url = this.currentDocumentUrl.toLowerCase();
+        return url.includes('.pdf') || url.includes('pdf');
+    }
+
+    get isOtherDocument() {
+        return !this.isExcelOrSheets && !this.isPdf;
+    }
+
+    get documentTypeMessage() {
+        if (this.isExcelOrSheets) {
+            return 'Excel/Sheets document - Interactive preview available';
+        } else if (this.isPdf) {
+            return 'PDF document - Preview available';
+        } else {
+            return 'Click "Open in New Tab" to view this document';
+        }
+    }
+
+    // Document Modal Methods
+    openClientOnboardingModal() {
+        if (this.previousTask && this.previousTask.clientOnboardingSheet) {
+            this.currentDocumentUrl = this.previousTask.clientOnboardingSheet;
+            this.modalTitle = 'Client Onboarding Sheet';
+            this.modalDocumentIcon = 'bi bi-file-earmark-excel text-success me-2';
+            this.embedUrl = this.generateEmbedUrl(this.currentDocumentUrl);
+            this.showDocumentModal = true;
+        }
+    }
+
+    openProjectTrackerModal() {
+        if (this.previousTask && this.previousTask.projectTracker) {
+            this.currentDocumentUrl = this.previousTask.projectTracker;
+            this.modalTitle = 'Project Tracker';
+            this.modalDocumentIcon = 'bi bi-file-earmark-spreadsheet text-info me-2';
+            this.embedUrl = this.generateEmbedUrl(this.currentDocumentUrl);
+            this.showDocumentModal = true;
+        }
+    }
+
+    generateEmbedUrl(url) {
+        if (!url) return '';
+        
+        // Google Sheets
+        if (url.includes('docs.google.com/spreadsheets')) {
+            // Convert Google Sheets sharing URL to embed URL
+            const fileId = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+            if (fileId) {
+                return `https://docs.google.com/spreadsheets/d/${fileId[1]}/edit?usp=sharing&widget=true&headers=false`;
+            }
+        }
+        
+        // OneDrive/SharePoint Excel files
+        if (url.includes('onedrive.live.com') || url.includes('sharepoint.com')) {
+            // For OneDrive/SharePoint, try to modify URL for embedding
+            if (url.includes('?')) {
+                return url + '&action=embedview';
+            } else {
+                return url + '?action=embedview';
+            }
+        }
+        
+        // For other cases, return original URL
+        return url;
+    }
+
+    closeDocumentModal() {
+        this.showDocumentModal = false;
+        this.currentDocumentUrl = '';
+        this.modalTitle = '';
+        this.modalDocumentIcon = '';
+        this.embedUrl = '';
+    }
+
+    openInNewTab() {
+        if (this.currentDocumentUrl) {
+            window.open(this.currentDocumentUrl, '_blank');
+        }
+    }
+
+    // Check if Next Meeting Date is in the future (greater than today)
+    get isNextMeetingDateInFuture() {
+        if (!this.currentNextMeetingDate) return false;
+        
+        const selectedDate = new Date(this.currentNextMeetingDate);
+        const todayDate = new Date(); 
+        todayDate.setHours(0, 0, 0, 0);
+        
+        return selectedDate > todayDate;
+    }
+
+    // Check if meeting fields should be auto-populated or blank
+    get shouldShowMeetingFields() {
+        return this.isNextMeetingDateInFuture;
     }
 }
